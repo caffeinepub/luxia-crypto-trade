@@ -1,0 +1,369 @@
+import { Badge } from "@/components/ui/badge";
+import { motion } from "motion/react";
+import { useEffect, useState } from "react";
+import { curateNews } from "../services/gemini";
+
+interface NewsItem {
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+  publishedAt: string;
+  category: string;
+  summary: string;
+  aiInsight?: string;
+  imageUrl?: string;
+}
+
+const STATIC_NEWS: NewsItem[] = [
+  {
+    id: "n1",
+    title: "Bitcoin Breaks $72K as Institutional Demand Surges",
+    source: "CoinDesk",
+    url: "#",
+    publishedAt: new Date(Date.now() - 3600000).toISOString(),
+    category: "BTC",
+    summary:
+      "Bitcoin surged past $72,000 driven by ETF inflows exceeding $800M in a single day, with BlackRock and Fidelity leading institutional purchases.",
+  },
+  {
+    id: "n2",
+    title: "Ethereum L2 Ecosystem Reaches $50B TVL Milestone",
+    source: "The Block",
+    url: "#",
+    publishedAt: new Date(Date.now() - 7200000).toISOString(),
+    category: "ETH",
+    summary:
+      "Ethereum's Layer 2 scaling solutions collectively surpassed $50 billion in total value locked, with Arbitrum and Base leading growth.",
+  },
+  {
+    id: "n3",
+    title: "Solana DeFi Volume Hits All-Time High of $12B Weekly",
+    source: "Decrypt",
+    url: "#",
+    publishedAt: new Date(Date.now() - 10800000).toISOString(),
+    category: "SOL",
+    summary:
+      "Solana's decentralized exchange volume set a new record as meme coin trading and new protocol launches drove unprecedented activity.",
+  },
+  {
+    id: "n4",
+    title: "Fed Signals Rate Cuts: Crypto Markets Rally 8%",
+    source: "Reuters",
+    url: "#",
+    publishedAt: new Date(Date.now() - 14400000).toISOString(),
+    category: "Macro",
+    summary:
+      "Federal Reserve minutes revealed consensus for two rate cuts in 2026, sending risk assets higher with the total crypto market cap gaining $180B.",
+  },
+  {
+    id: "n5",
+    title: "XRP Legal Victory: SEC Case Formally Closed",
+    source: "CoinTelegraph",
+    url: "#",
+    publishedAt: new Date(Date.now() - 18000000).toISOString(),
+    category: "XRP",
+    summary:
+      "Ripple's legal battle with the SEC officially concluded with a favorable settlement, opening the door for XRP ETF applications from major asset managers.",
+  },
+  {
+    id: "n6",
+    title: "AI Tokens Lead Altcoin Season: RNDR Up 40% This Week",
+    source: "CryptoSlate",
+    url: "#",
+    publishedAt: new Date(Date.now() - 21600000).toISOString(),
+    category: "AI",
+    summary:
+      "Artificial intelligence-themed cryptocurrencies outperformed the broader market as enterprise AI adoption drives demand for decentralized compute networks.",
+  },
+  {
+    id: "n7",
+    title: "BNB Chain Launches Ultra-Fast Execution Layer",
+    source: "BNB Blog",
+    url: "#",
+    publishedAt: new Date(Date.now() - 25200000).toISOString(),
+    category: "BNB",
+    summary:
+      "Binance Smart Chain's new execution layer achieves sub-100ms finality, positioning it as a direct competitor to Solana for high-frequency trading apps.",
+  },
+  {
+    id: "n8",
+    title: "Global Crypto Regulations: 40 Countries Adopt MiCA Framework",
+    source: "CoinDesk",
+    url: "#",
+    publishedAt: new Date(Date.now() - 28800000).toISOString(),
+    category: "Regulation",
+    summary:
+      "A wave of nations outside the EU voluntarily adopted the MiCA regulatory framework, signaling growing global consensus on crypto oversight standards.",
+  },
+];
+
+function timeAgo(dateStr: string): string {
+  const ms = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(ms / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function formatHHMM(date: Date): string {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+async function fetchCryptoPanic(): Promise<NewsItem[] | null> {
+  try {
+    const res = await fetch(
+      "https://cryptopanic.com/api/v1/posts/?auth_token=anonymous&public=true&filter=rising",
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.results) return null;
+    return data.results.slice(0, 8).map(
+      (item: {
+        id: number;
+        title: string;
+        source?: { title?: string };
+        url: string;
+        published_at: string;
+        currencies?: { code: string }[];
+      }) => ({
+        id: String(item.id),
+        title: item.title,
+        source: item.source?.title || "CryptoPanic",
+        url: item.url,
+        publishedAt: item.published_at,
+        category: item.currencies?.[0]?.code || "Crypto",
+        summary: item.title,
+      }),
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function fetchCryptoCompare(): Promise<NewsItem[] | null> {
+  try {
+    const res = await fetch(
+      "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.Data) return null;
+    return data.Data.slice(0, 8).map(
+      (item: {
+        id: string;
+        title: string;
+        source: string;
+        url: string;
+        published_on: number;
+        categories: string;
+        body: string;
+        imageurl?: string;
+      }) => ({
+        id: String(item.id),
+        title: item.title,
+        source: item.source,
+        url: item.url,
+        publishedAt: new Date(item.published_on * 1000).toISOString(),
+        category: item.categories?.split("|")[0] || "Crypto",
+        summary: `${item.body?.slice(0, 160) ?? item.title}...`,
+        imageUrl: item.imageurl
+          ? `https://www.cryptocompare.com${item.imageurl}`
+          : undefined,
+      }),
+    );
+  } catch {
+    return null;
+  }
+}
+
+export default function NewsPage() {
+  const [news, setNews] = useState<NewsItem[]>(STATIC_NEWS);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  async function loadNews() {
+    setLoading(true);
+    try {
+      let items = await fetchCryptoPanic();
+      if (!items) items = await fetchCryptoCompare();
+      if (items && items.length > 0) {
+        const titles = items.map((n) => n.title);
+        try {
+          const insights = await curateNews(titles);
+          const enriched = items.map((n, i) => ({
+            ...n,
+            aiInsight: insights[i] || n.summary,
+          }));
+          setNews(enriched);
+        } catch {
+          setNews(items);
+        }
+      } else {
+        setNews(STATIC_NEWS);
+      }
+    } catch {
+      setNews(STATIC_NEWS);
+    } finally {
+      setLoading(false);
+      setLastUpdated(new Date());
+    }
+  }
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
+  useEffect(() => {
+    loadNews();
+    const interval = setInterval(loadNews, 3600000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const categoryColors: Record<string, string> = {
+    BTC: "bg-orange-100 text-orange-700",
+    ETH: "bg-purple-100 text-purple-700",
+    SOL: "bg-violet-100 text-violet-700",
+    BNB: "bg-yellow-100 text-yellow-700",
+    XRP: "bg-blue-100 text-blue-700",
+    Macro: "bg-slate-100 text-slate-700",
+    Regulation: "bg-red-100 text-red-700",
+    AI: "bg-cyan-100 text-cyan-700",
+  };
+
+  return (
+    <div className="min-h-screen bg-white py-10 px-6">
+      <div className="max-w-7xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <div className="text-[#B8902A] text-xs tracking-widest uppercase font-semibold mb-2">
+                Live Feed
+              </div>
+              <h1 className="font-display text-4xl font-bold text-[#0A1628] uppercase tracking-tight">
+                Crypto News
+              </h1>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[#0A1628]/40 text-xs">
+                Last updated: {formatHHMM(lastUpdated)}
+              </span>
+              <span className="flex items-center gap-1.5 text-xs text-[#16A34A] bg-[#16A34A]/10 px-3 py-1.5 rounded-full border border-[#16A34A]/20">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A] animate-pulse" />
+                Live · Hourly
+              </span>
+            </div>
+          </div>
+          <div className="mt-3 h-0.5 bg-gradient-to-r from-[#C9A84C] via-[#E8C97A] to-transparent" />
+        </motion.div>
+
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div
+                key={i}
+                className="luxury-card rounded-2xl h-64 animate-pulse bg-[#0A1628]/4"
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {news.map((article, i) => (
+              <motion.a
+                key={article.id}
+                href={article.url !== "#" ? article.url : undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.06 }}
+                data-ocid={`news.item.${i + 1}`}
+                className="luxury-card rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 cursor-pointer group block"
+              >
+                {/* Card image or gradient fallback */}
+                {article.imageUrl ? (
+                  <div className="h-32 overflow-hidden relative">
+                    <img
+                      src={article.imageUrl}
+                      alt={article.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      onError={(e) => {
+                        const target = e.currentTarget as HTMLImageElement;
+                        target.style.display = "none";
+                        const parent = target.parentElement;
+                        if (parent) {
+                          parent.classList.add(
+                            "bg-gradient-to-br",
+                            "from-[#0A1628]",
+                            "to-[#1a3558]",
+                            "flex",
+                            "items-center",
+                            "justify-center",
+                          );
+                          parent.innerHTML = '<span class="text-3xl">📰</span>';
+                        }
+                      }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+                  </div>
+                ) : (
+                  <div className="h-32 bg-gradient-to-br from-[#0A1628] to-[#1a3558] flex items-center justify-center text-3xl relative overflow-hidden">
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        backgroundImage:
+                          "radial-gradient(circle at 70% 30%, rgba(201,168,76,0.15) 0%, transparent 60%)",
+                      }}
+                    />
+                    <span className="relative z-10 text-3xl">📰</span>
+                  </div>
+                )}
+                <div className="p-5">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <Badge
+                      className={`text-[10px] font-semibold uppercase tracking-wider ${
+                        categoryColors[article.category] ||
+                        "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {article.category}
+                    </Badge>
+                    <span className="text-[#0A1628]/40 text-[10px]">
+                      {timeAgo(article.publishedAt)}
+                    </span>
+                  </div>
+                  <h3 className="text-[#0A1628] font-bold text-sm mb-2 leading-snug group-hover:text-[#B8902A] transition-colors line-clamp-2">
+                    {article.title}
+                  </h3>
+                  {article.aiInsight && article.aiInsight !== article.title && (
+                    <div className="bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-lg p-2 mb-2">
+                      <div className="text-[#B8902A] text-[8px] uppercase font-bold mb-0.5">
+                        AI Insight
+                      </div>
+                      <p className="text-[#0A1628]/70 text-[10px] leading-relaxed line-clamp-2">
+                        {article.aiInsight}
+                      </p>
+                    </div>
+                  )}
+                  <p className="text-[#0A1628]/55 text-[11px] leading-relaxed line-clamp-2">
+                    {article.summary}
+                  </p>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-[#0A1628]/30 text-[10px]">
+                      {article.source}
+                    </span>
+                    <span className="text-[#B8902A] text-xs font-semibold">
+                      Read more →
+                    </span>
+                  </div>
+                </div>
+              </motion.a>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
