@@ -135,7 +135,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
         transition={{ delay: index * 0.05 }}
         data-ocid={`signal.item.${index + 1}`}
         onClick={handleCardClick}
-        className="bg-white border border-gray-300 shadow-md rounded-2xl min-w-[320px] max-w-[360px] cursor-pointer hover:shadow-lg transition-shadow flex flex-col"
+        className="bg-white border border-gray-300 shadow-md rounded-2xl w-full cursor-pointer hover:shadow-lg transition-shadow flex flex-col"
       >
         {/* Card Header */}
         <div
@@ -287,6 +287,34 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
           <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
             ~{signal.estimatedHours}h
           </span>
+        </div>
+
+        {/* Progress Bars */}
+        <div className="px-4 pb-3 space-y-2">
+          <div>
+            <div className="flex justify-between text-[9px] text-gray-400 mb-0.5">
+              <span>Confidence</span>
+              <span>{signal.confidence}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-gray-100">
+              <div
+                style={{ width: `${signal.confidence}%` }}
+                className="h-1.5 rounded-full bg-green-500 transition-all"
+              />
+            </div>
+          </div>
+          <div>
+            <div className="flex justify-between text-[9px] text-gray-400 mb-0.5">
+              <span>TP Probability</span>
+              <span>{signal.tpProbability}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-gray-100">
+              <div
+                style={{ width: `${signal.tpProbability}%` }}
+                className="h-1.5 rounded-full bg-blue-500 transition-all"
+              />
+            </div>
+          </div>
         </div>
 
         {/* Buttons */}

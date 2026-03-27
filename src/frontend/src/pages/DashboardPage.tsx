@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
+import { getLearningStats } from "../services/aiLearning";
+import type { LearningStats } from "../services/aiLearning";
 
 interface ScanStats {
   coinsScanned: number;
@@ -57,6 +59,8 @@ export default function DashboardPage() {
   const [dataPoints, setDataPoints] = useState(() =>
     getOrDefault("luxia_ai_datapoints", 892341),
   );
+  const [learningStats, setLearningStats] =
+    useState<LearningStats>(getLearningStats);
 
   useEffect(() => {
     if (!breaker) return;
@@ -64,6 +68,7 @@ export default function DashboardPage() {
       setStats(getOrDefault("luxia_scan_stats", stats));
       setActivity(getOrDefault("luxia_scan_activity", []));
       setFailures(getOrDefault("luxia_ai_failures", []));
+      setLearningStats(getLearningStats());
       setIterations((v: number) => {
         const n = v + Math.floor(Math.random() * 3);
         localStorage.setItem("luxia_ai_iterations", String(n));
@@ -120,7 +125,9 @@ export default function DashboardPage() {
                 }`}
               >
                 <span
-                  className={`w-1.5 h-1.5 rounded-full ${breaker ? "bg-[#16A34A] animate-pulse" : "bg-red-500"}`}
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    breaker ? "bg-[#16A34A] animate-pulse" : "bg-red-500"
+                  }`}
                 />
                 {breaker ? "Running" : "Paused"}
               </span>
@@ -213,6 +220,104 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* Trade Learning Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="luxury-card rounded-2xl p-6 mb-6"
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <span className="w-2 h-2 rounded-full bg-[#C9A84C] animate-pulse" />
+            <h3 className="text-[#0A1628] font-bold uppercase tracking-wider">
+              Trade Learning Engine
+            </h3>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div className="bg-[#0A1628]/4 rounded-xl p-4 text-center">
+              <div className="text-[#0A1628] font-bold text-2xl">
+                {learningStats.totalTrades}
+              </div>
+              <div className="text-[#0A1628]/50 text-xs uppercase tracking-wider mt-1">
+                Trades Recorded
+              </div>
+            </div>
+            <div className="bg-green-50 rounded-xl p-4 text-center">
+              <div className="text-green-600 font-bold text-2xl">
+                {learningStats.hits}
+              </div>
+              <div className="text-green-600/60 text-xs uppercase tracking-wider mt-1">
+                TP Hits
+              </div>
+            </div>
+            <div className="bg-red-50 rounded-xl p-4 text-center">
+              <div className="text-red-500 font-bold text-2xl">
+                {learningStats.misses}
+              </div>
+              <div className="text-red-400 text-xs uppercase tracking-wider mt-1">
+                Missed
+              </div>
+            </div>
+            <div className="bg-[#C9A84C]/10 rounded-xl p-4 text-center">
+              <div className="text-[#B8902A] font-bold text-2xl">
+                {(learningStats.hitRate * 100).toFixed(0)}%
+              </div>
+              <div className="text-[#B8902A]/60 text-xs uppercase tracking-wider mt-1">
+                Hit Rate
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="bg-[#0A1628]/4 rounded-xl p-4">
+              <div className="text-[#0A1628]/50 text-xs uppercase tracking-wider mb-1">
+                Avg Confidence (Hits)
+              </div>
+              <div className="text-[#0A1628] font-bold">
+                {learningStats.avgConfidenceHit > 0
+                  ? `${learningStats.avgConfidenceHit.toFixed(1)}%`
+                  : "—"}
+              </div>
+            </div>
+            <div className="bg-[#0A1628]/4 rounded-xl p-4">
+              <div className="text-[#0A1628]/50 text-xs uppercase tracking-wider mb-1">
+                Signal Adjustment Factor
+              </div>
+              <div
+                className={`font-bold ${
+                  learningStats.adjustmentFactor >= 1
+                    ? "text-green-600"
+                    : "text-orange-500"
+                }`}
+              >
+                ×{learningStats.adjustmentFactor.toFixed(2)}
+              </div>
+            </div>
+            <div className="bg-[#0A1628]/4 rounded-xl p-4">
+              <div className="text-[#0A1628]/50 text-xs uppercase tracking-wider mb-1">
+                Learning Score
+              </div>
+              <div className="text-[#C9A84C] font-bold">
+                {learningStats.learningScore.toFixed(0)} / 100
+              </div>
+            </div>
+          </div>
+          <div className="bg-[#0A1628]/4 rounded-xl p-4">
+            <div className="text-[#0A1628]/50 text-xs uppercase tracking-wider mb-2">
+              AI Improvements
+            </div>
+            <ul className="space-y-1">
+              {learningStats.improvements.map((imp) => (
+                <li
+                  key={imp.slice(0, 20)}
+                  className="text-sm text-[#0A1628]/70 flex items-start gap-2"
+                >
+                  <span className="text-[#C9A84C] mt-0.5">💡</span>
+                  {imp}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </motion.div>
 
         {/* Signal History Chart */}
         <div className="luxury-card rounded-2xl p-6 mb-6">

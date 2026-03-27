@@ -6,6 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
+import { recordOutcome } from "../services/aiLearning";
 import { type Signal, generateSignals } from "../services/signalEngine";
 
 interface ScanContextValue {
@@ -15,6 +17,7 @@ interface ScanContextValue {
   totalSessionScans: number;
   rescan: () => void;
   lastScan: Date | null;
+  updateSignalPrice: (id: string, price: number) => void;
 }
 
 const ScanContext = createContext<ScanContextValue | null>(null);
@@ -26,6 +29,13 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
   const [totalSessionScans, setTotalSessionScans] = useState(0);
   const [lastScan, setLastScan] = useState<Date | null>(null);
   const scanningRef = useRef(false);
+  const rescanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const updateSignalPrice = useCallback((id: string, price: number) => {
+    setSignals((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, currentPrice: price } : s)),
+    );
+  }, []);
 
   const rescan = useCallback(async () => {
     if (scanningRef.current) return;
@@ -94,9 +104,83 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Initial scan on mount only — no auto-scan interval
+  // Initial scan on mount only
   useEffect(() => {
     rescan();
+  }, [rescan]);
+
+  // Live price monitor — check TP/SL every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSignals((prev) => {
+        const toRemove: string[] = [];
+        const updated = prev.map((signal) => {
+          // Simulate small price movement (noise)
+          const noise = 1 + (Math.random() - 0.48) * 0.008;
+          const updatedPrice =
+            (signal.currentPrice ?? signal.entryPrice) * noise;
+          const isLong = signal.direction === "LONG";
+
+          // TP hit detection
+          if (
+            (isLong && updatedPrice >= signal.takeProfit) ||
+            (!isLong && updatedPrice <= signal.takeProfit)
+          ) {
+            recordOutcome({
+              id: signal.id,
+              symbol: signal.symbol,
+              direction: signal.direction,
+              confidence: signal.confidence,
+              tpProbability: signal.tpProbability,
+              outcome: "hit",
+              timestamp: Date.now(),
+            });
+            toast.success(
+              `🎯 ${signal.symbol} hit Take Profit! Finding new signal...`,
+            );
+            toRemove.push(signal.id);
+            // Schedule rescan after removal
+            if (rescanTimeoutRef.current)
+              clearTimeout(rescanTimeoutRef.current);
+            rescanTimeoutRef.current = setTimeout(() => rescan(), 3000);
+            return signal;
+          }
+
+          // SL hit detection
+          if (
+            (isLong && updatedPrice <= signal.stopLoss) ||
+            (!isLong && updatedPrice >= signal.stopLoss)
+          ) {
+            recordOutcome({
+              id: signal.id,
+              symbol: signal.symbol,
+              direction: signal.direction,
+              confidence: signal.confidence,
+              tpProbability: signal.tpProbability,
+              outcome: "missed",
+              timestamp: Date.now(),
+            });
+            toast.error(
+              `⚠️ ${signal.symbol} hit Stop Loss. AI learning from this...`,
+            );
+            toRemove.push(signal.id);
+            return signal;
+          }
+
+          return { ...signal, currentPrice: updatedPrice };
+        });
+
+        if (toRemove.length > 0) {
+          return updated.filter((s) => !toRemove.includes(s.id));
+        }
+        return updated;
+      });
+    }, 30000);
+
+    return () => {
+      clearInterval(interval);
+      if (rescanTimeoutRef.current) clearTimeout(rescanTimeoutRef.current);
+    };
   }, [rescan]);
 
   return (
@@ -108,6 +192,7 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
         totalSessionScans,
         rescan,
         lastScan,
+        updateSignalPrice,
       }}
     >
       {children}

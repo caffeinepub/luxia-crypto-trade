@@ -120,12 +120,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
             </div>
           </div>
         ) : (
-          <div
-            className="flex gap-4 overflow-x-auto pb-4"
-            style={{ scrollbarWidth: "none" }}
-          >
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map((sig, i) => (
-              <div key={sig.id} className="flex-shrink-0">
+              <div key={sig.id} className="w-full">
                 <LiveSignalCard signal={sig} index={i} />
               </div>
             ))}

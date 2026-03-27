@@ -1,5 +1,11 @@
 import type { Ticker } from "./bingx";
-import { GEMINI_API_KEY, GEMINI_BASE_URL } from "./config";
+import { GEMINI_API_KEY } from "./config";
+
+const MODELS = [
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+  "gemini-1.5-flash-latest",
+];
 
 export interface AISignalAnalysis {
   confidence: number;
@@ -13,17 +19,30 @@ interface ChatMessage {
 }
 
 async function callGemini(prompt: string): Promise<string> {
-  const res = await fetch(`${GEMINI_BASE_URL}?key=${GEMINI_API_KEY}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 512 },
-    }),
-  });
-  if (!res.ok) throw new Error("Gemini API error");
-  const data = await res.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  let lastError: Error | null = null;
+  for (const model of MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 512 },
+        }),
+      });
+      if (!res.ok) {
+        lastError = new Error(`HTTP ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) return text;
+    } catch (e) {
+      lastError = e as Error;
+    }
+  }
+  throw lastError || new Error("All Gemini models failed");
 }
 
 export async function analyzeSignal(
@@ -71,6 +90,39 @@ export async function chatWithAI(
     );
   } catch {
     return "Luxia AI is temporarily unavailable. Based on the technical indicators, this trade shows strong potential. Monitor the entry point closely.";
+  }
+}
+
+export async function analyzeTrackedTrade(
+  symbol: string,
+  direction: string,
+  entryPrice: number,
+  currentPrice: number,
+  takeProfit: number,
+  stopLoss: number,
+  progressPct: number,
+  elapsedHours: number,
+  strengthLabel: string,
+): Promise<string> {
+  try {
+    const prompt = `You are Luxia AI, a professional crypto trading analyst. Analyze this live tracked trade:
+- Coin: ${symbol}
+- Direction: ${direction}
+- Entry: $${entryPrice.toFixed(6)}
+- Current Price: $${currentPrice.toFixed(6)}
+- Take Profit: $${takeProfit.toFixed(6)}
+- Stop Loss: $${stopLoss.toFixed(6)}
+- Progress to TP: ${progressPct.toFixed(1)}%
+- Time in trade: ${elapsedHours.toFixed(1)} hours
+- Strength: ${strengthLabel}
+
+Give a 2-3 sentence live monitoring assessment: Is this trade on track to hit TP? Should the trader hold, take partial profit, or exit? Be direct and specific.`;
+    return await callGemini(prompt);
+  } catch {
+    const onTrack = progressPct > 50;
+    return onTrack
+      ? `${symbol} is progressing well toward TP at ${progressPct.toFixed(0)}% complete. Hold position and maintain stop loss discipline.`
+      : `${symbol} needs monitoring — only ${progressPct.toFixed(0)}% toward TP. Watch for strength indicators before adding to position.`;
   }
 }
 

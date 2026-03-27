@@ -1,10 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import TradeDetailModal from "../components/TradeDetailModal";
 import { useAuth } from "../context/AuthContext";
+import { getLearningStats, recordOutcome } from "../services/aiLearning";
+import { analyzeTrackedTrade, chatWithAI } from "../services/gemini";
 import type { Signal } from "../services/signalEngine";
 
 const TRACKED_KEY = "luxia_tracked_trades";
@@ -13,6 +15,12 @@ const GUEST_TRACKED_KEY = "luxia_tracked_trades_guest";
 interface TrackedTrade extends Signal {
   trackedAt: number;
   outcome?: "hit" | "missed";
+}
+
+interface ChatMsg {
+  id: number;
+  role: string;
+  text: string;
 }
 
 function formatPrice(p: number): string {
@@ -38,6 +46,25 @@ export default function TrackingPage() {
   const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
+  // AI monitoring state
+  const [aiMonitoring, setAiMonitoring] = useState<Record<string, string>>({});
+  const [aiMonitorTime, setAiMonitorTime] = useState<Record<string, number>>(
+    {},
+  );
+  const [aiLoading, setAiLoading] = useState<Record<string, boolean>>({});
+
+  // AI chat state per trade
+  const [chatOpen, setChatOpen] = useState<Record<string, boolean>>({});
+  const [chatMessages, setChatMessages] = useState<Record<string, ChatMsg[]>>(
+    {},
+  );
+  const [chatInput, setChatInput] = useState<Record<string, string>>({});
+  const [chatSending, setChatSending] = useState<Record<string, boolean>>({});
+  const msgIdRef = useRef(0);
+
+  // Learning stats
+  const [learningStats, setLearningStats] = useState(getLearningStats);
+
   useEffect(() => {
     const raw = localStorage.getItem(storageKey);
     if (raw) {
@@ -57,7 +84,7 @@ export default function TrackingPage() {
     }
   }, [storageKey]);
 
-  // Update prices every 10 seconds for a more live feel
+  // Live price updates
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentPrices((prev) => {
@@ -76,6 +103,64 @@ export default function TrackingPage() {
     return () => clearInterval(interval);
   }, [trades]);
 
+  // AI monitoring — run on mount and every 60s
+  const runAiMonitoring = useCallback(
+    async (tradesArr: TrackedTrade[], prices: Record<string, number>) => {
+      for (const trade of tradesArr) {
+        if (trade.outcome) continue;
+        const currentPrice = prices[trade.id] ?? trade.currentPrice;
+        const isLong = trade.direction === "LONG";
+        const progressPct = isLong
+          ? Math.min(
+              100,
+              Math.max(
+                0,
+                ((currentPrice - trade.entryPrice) /
+                  (trade.takeProfit - trade.entryPrice || 1)) *
+                  100,
+              ),
+            )
+          : Math.min(
+              100,
+              Math.max(
+                0,
+                ((trade.entryPrice - currentPrice) /
+                  (trade.entryPrice - trade.takeProfit || 1)) *
+                  100,
+              ),
+            );
+        const elapsedHours =
+          (Date.now() - (trade.trackedAt ?? trade.timestamp)) / 3600000;
+        setAiLoading((prev) => ({ ...prev, [trade.id]: true }));
+        const analysis = await analyzeTrackedTrade(
+          trade.symbol,
+          trade.direction,
+          trade.entryPrice,
+          currentPrice,
+          trade.takeProfit,
+          trade.stopLoss,
+          progressPct,
+          elapsedHours,
+          trade.strengthLabel,
+        );
+        setAiMonitoring((prev) => ({ ...prev, [trade.id]: analysis }));
+        setAiMonitorTime((prev) => ({ ...prev, [trade.id]: Date.now() }));
+        setAiLoading((prev) => ({ ...prev, [trade.id]: false }));
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (trades.length === 0) return;
+    runAiMonitoring(trades, currentPrices);
+    const interval = setInterval(
+      () => runAiMonitoring(trades, currentPrices),
+      60000,
+    );
+    return () => clearInterval(interval);
+  }, [trades, currentPrices, runAiMonitoring]);
+
   const removeTrade = (id: string) => {
     const updated = trades.filter((t) => t.id !== id);
     setTrades(updated);
@@ -84,17 +169,72 @@ export default function TrackingPage() {
   };
 
   const markOutcome = (id: string, outcome: "hit" | "missed") => {
+    const trade = trades.find((t) => t.id === id);
+    if (trade) {
+      recordOutcome({
+        id: trade.id,
+        symbol: trade.symbol,
+        direction: trade.direction,
+        confidence: trade.confidence,
+        tpProbability: trade.tpProbability,
+        outcome,
+        timestamp: Date.now(),
+      });
+      setLearningStats(getLearningStats());
+    }
     const updated = trades.map((t) => (t.id === id ? { ...t, outcome } : t));
     setTrades(updated);
     localStorage.setItem(storageKey, JSON.stringify(updated));
     toast.success(
-      outcome === "hit" ? "Marked as profit taken! 🎉" : "Marked as missed",
+      outcome === "hit"
+        ? "Marked as profit taken! 🎉 AI is learning from this."
+        : "Marked as missed. AI will improve signals.",
     );
   };
 
   const openModal = (signal: Signal) => {
     setSelectedSignal(signal);
     setModalOpen(true);
+  };
+
+  const toggleChat = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setChatOpen((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const sendChatMessage = async (
+    trade: TrackedTrade,
+    currentPrice: number,
+    e: React.FormEvent,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const msg = (chatInput[trade.id] || "").trim();
+    if (!msg || chatSending[trade.id]) return;
+    setChatInput((prev) => ({ ...prev, [trade.id]: "" }));
+    setChatSending((prev) => ({ ...prev, [trade.id]: true }));
+    const userMsg: ChatMsg = {
+      id: ++msgIdRef.current,
+      role: "user",
+      text: msg,
+    };
+    setChatMessages((prev) => ({
+      ...prev,
+      [trade.id]: [...(prev[trade.id] || []), userMsg],
+    }));
+    const tradeCtx = `Tracked trade: ${trade.symbol} ${trade.direction}, Entry $${trade.entryPrice.toFixed(6)}, Current $${currentPrice.toFixed(6)}, TP $${trade.takeProfit.toFixed(6)}, SL $${trade.stopLoss.toFixed(6)}, Confidence ${trade.confidence}%.`;
+    const history = (chatMessages[trade.id] || [])
+      .slice(-4)
+      .map(({ role, text }) => ({ role, text }));
+    const reply = await chatWithAI(tradeCtx, msg, history);
+    setChatMessages((prev) => ({
+      ...prev,
+      [trade.id]: [
+        ...(prev[trade.id] || []),
+        { id: ++msgIdRef.current, role: "ai", text: reply },
+      ],
+    }));
+    setChatSending((prev) => ({ ...prev, [trade.id]: false }));
   };
 
   return (
@@ -109,8 +249,53 @@ export default function TrackingPage() {
             📊 Tracking
           </h1>
           <p className="text-[#0A1628]/50 text-sm">
-            Your manually tracked trades — updated live
+            Your manually tracked trades — AI monitored live
           </p>
+        </motion.div>
+
+        {/* AI Learning Stats Bar */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mb-6 bg-gradient-to-r from-[#0A1628]/5 to-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-2xl p-4"
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span className="w-2 h-2 rounded-full bg-[#C9A84C] animate-pulse" />
+            <span className="text-xs font-bold text-[#0A1628] uppercase tracking-wider">
+              AI Learning Engine
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="text-center">
+              <div className="text-lg font-bold text-[#0A1628]">
+                {learningStats.totalTrades}
+              </div>
+              <div className="text-[10px] text-gray-400 uppercase">
+                Trades Learned
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-green-600">
+                {(learningStats.hitRate * 100).toFixed(0)}%
+              </div>
+              <div className="text-[10px] text-gray-400 uppercase">
+                Hit Rate
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-[#C9A84C]">
+                {learningStats.learningScore.toFixed(0)}
+              </div>
+              <div className="text-[10px] text-gray-400 uppercase">
+                Learning Score
+              </div>
+            </div>
+          </div>
+          {learningStats.improvements[0] && (
+            <div className="mt-2 text-xs text-[#0A1628]/60 italic">
+              💡 {learningStats.improvements[0]}
+            </div>
+          )}
         </motion.div>
 
         {trades.length === 0 ? (
@@ -126,7 +311,7 @@ export default function TrackingPage() {
           </div>
         ) : (
           <div
-            className="flex gap-4 overflow-x-auto pb-4"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
             style={{ scrollbarWidth: "none" }}
           >
             <AnimatePresence>
@@ -158,24 +343,24 @@ export default function TrackingPage() {
                   ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
                   : ((trade.entryPrice - currentPrice) / trade.entryPrice) *
                     100;
-
-                // Early dump detection at 0.5% below entry
                 const dumpWarning =
                   isLong && currentPrice < trade.entryPrice * 0.995;
-
-                // Early dump risk warning — momentum weakening before price drops
                 const earlyDumpRisk =
                   isLong &&
                   currentPrice < trade.entryPrice * 1.003 &&
                   trade.strengthLabel !== "Strong" &&
                   !tpReached;
-
                 const safeExit = isLong
                   ? trade.entryPrice + (currentPrice - trade.entryPrice) * 0.6
                   : trade.entryPrice - (trade.entryPrice - currentPrice) * 0.6;
                 const nearTp = progressPct >= 70 && !tpReached;
                 const elapsed =
                   Date.now() - (trade.trackedAt ?? trade.timestamp);
+                const aiText = aiMonitoring[trade.id];
+                const isAiLoading = aiLoading[trade.id];
+                const lastMonitorTime = aiMonitorTime[trade.id];
+                const isChatOpen = chatOpen[trade.id];
+                const msgs = chatMessages[trade.id] || [];
 
                 return (
                   <motion.div
@@ -187,7 +372,7 @@ export default function TrackingPage() {
                     onClick={() => openModal(trade)}
                     onKeyDown={(e) => e.key === "Enter" && openModal(trade)}
                     tabIndex={0}
-                    className="bg-white border border-gray-300 shadow-md rounded-2xl min-w-[320px] max-w-[360px] flex-shrink-0 cursor-pointer hover:shadow-lg transition-shadow"
+                    className="bg-white border border-gray-300 shadow-md rounded-2xl w-full cursor-pointer hover:shadow-lg transition-shadow"
                   >
                     {tpReached && !trade.outcome && (
                       <div className="bg-green-500 rounded-t-2xl p-3 text-center animate-pulse">
@@ -196,8 +381,6 @@ export default function TrackingPage() {
                         </div>
                       </div>
                     )}
-
-                    {/* Early dump risk warning — shown before actual dump */}
                     {earlyDumpRisk && !dumpWarning && (
                       <div className="bg-orange-400 rounded-t-2xl p-2 text-center">
                         <div className="text-white text-xs font-semibold">
@@ -205,7 +388,6 @@ export default function TrackingPage() {
                         </div>
                       </div>
                     )}
-
                     {dumpWarning && !tpReached && (
                       <div className="bg-red-500 rounded-t-2xl p-2 text-center">
                         <div className="text-white text-xs font-semibold">
@@ -305,9 +487,126 @@ export default function TrackingPage() {
                         </div>
                       )}
 
+                      {/* AI Live Monitoring Panel */}
+                      <div
+                        className="bg-gradient-to-r from-[#0A1628]/5 to-[#C9A84C]/5 border border-[#C9A84C]/20 rounded-xl p-3 mb-3"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              isAiLoading
+                                ? "bg-yellow-400 animate-spin"
+                                : "bg-[#C9A84C] animate-pulse"
+                            }`}
+                          />
+                          <span className="text-[10px] font-bold text-[#0A1628] uppercase tracking-wider">
+                            AI Monitor
+                          </span>
+                          {lastMonitorTime && (
+                            <span className="text-[9px] text-gray-400 ml-auto">
+                              {new Date(lastMonitorTime).toLocaleTimeString()}
+                            </span>
+                          )}
+                        </div>
+                        {isAiLoading ? (
+                          <div className="text-[10px] text-gray-400 italic animate-pulse">
+                            Analyzing trade conditions...
+                          </div>
+                        ) : aiText ? (
+                          <div className="text-[11px] text-[#0A1628]/80 leading-relaxed">
+                            {aiText}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-gray-400 italic">
+                            AI analysis loading...
+                          </div>
+                        )}
+                      </div>
+
+                      {/* AI Chat Toggle */}
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          data-ocid={`tracking.toggle.${i + 1}`}
+                          className="w-full text-xs text-[#C9A84C] border border-[#C9A84C]/30 rounded-lg py-1.5 mb-2 hover:bg-[#C9A84C]/5 transition-colors font-semibold"
+                          onClick={(e) => toggleChat(trade.id, e)}
+                        >
+                          {isChatOpen
+                            ? "✕ Close AI Chat"
+                            : "💬 Ask AI About This Trade"}
+                        </button>
+
+                        <AnimatePresence>
+                          {isChatOpen && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              className="overflow-hidden border-t border-[#C9A84C]/20 pt-2"
+                            >
+                              <div className="h-28 overflow-y-auto mb-2 space-y-2">
+                                {msgs.length === 0 && (
+                                  <div className="text-[11px] text-gray-400 italic p-2">
+                                    Ask anything about this tracked trade...
+                                  </div>
+                                )}
+                                {msgs.map((m) => (
+                                  <div
+                                    key={m.id}
+                                    className={`rounded-lg px-2.5 py-1.5 text-xs ${
+                                      m.role === "user"
+                                        ? "bg-[#0A1628]/8 text-[#0A1628]"
+                                        : "bg-[#C9A84C]/10 text-[#0A1628]"
+                                    }`}
+                                  >
+                                    <span className="font-semibold">
+                                      {m.role === "user" ? "You" : "Luxia AI"}:{" "}
+                                    </span>
+                                    {m.text}
+                                  </div>
+                                ))}
+                              </div>
+                              <form
+                                onSubmit={(e) =>
+                                  sendChatMessage(trade, currentPrice, e)
+                                }
+                                className="flex gap-1.5"
+                              >
+                                <input
+                                  type="text"
+                                  data-ocid={`tracking.input.${i + 1}`}
+                                  value={chatInput[trade.id] || ""}
+                                  onChange={(e) =>
+                                    setChatInput((prev) => ({
+                                      ...prev,
+                                      [trade.id]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Ask about this trade..."
+                                  className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#C9A84C]"
+                                />
+                                <button
+                                  type="submit"
+                                  data-ocid={`tracking.submit_button.${i + 1}`}
+                                  disabled={chatSending[trade.id]}
+                                  className="text-xs bg-[#0A1628] text-white rounded-lg px-3 py-1.5 hover:bg-[#0A1628]/80 disabled:opacity-50"
+                                >
+                                  {chatSending[trade.id] ? "..." : "Send"}
+                                </button>
+                              </form>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+
                       {tpReached && !trade.outcome ? (
                         <div
-                          className="flex gap-2"
+                          className="flex gap-2 mt-2"
                           onClick={(e) => e.stopPropagation()}
                           onKeyDown={(e) => e.stopPropagation()}
                         >
@@ -337,7 +636,7 @@ export default function TrackingPage() {
                         </div>
                       ) : trade.outcome ? (
                         <div
-                          className={`text-center py-1.5 rounded-lg text-xs font-bold ${
+                          className={`text-center py-1.5 rounded-lg text-xs font-bold mt-2 ${
                             trade.outcome === "hit"
                               ? "bg-green-100 text-green-700"
                               : "bg-red-100 text-red-600"

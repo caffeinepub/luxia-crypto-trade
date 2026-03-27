@@ -1,3 +1,4 @@
+import { getAdjustmentFactor } from "./aiLearning";
 import type { CoinData } from "./marketData";
 
 export interface Signal {
@@ -219,7 +220,9 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     mlScore = Math.min(99, Math.max(78, mlScore));
 
     // Confidence only reaches 90+ when mlScore strongly aligns
-    const confidence = Math.min(99, Math.max(88, 86 + mlScore * 0.14));
+    const rawConfidence = Math.min(99, Math.max(88, 86 + mlScore * 0.14));
+    const adjustmentFactor = getAdjustmentFactor();
+    const confidence = Math.min(99, rawConfidence * adjustmentFactor);
     const tpProbability = Math.min(99, Math.max(80, 78 + mlScore * 0.12));
 
     if (confidence < 90 || tpProbability < 80) continue;
