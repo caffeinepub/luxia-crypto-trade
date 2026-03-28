@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
-import { curateNews } from "../services/gemini";
+import { curateNews } from "../services/ai";
 
 interface NewsItem {
   id: string;

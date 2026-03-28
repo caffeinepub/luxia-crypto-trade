@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { useCredits } from "../context/CreditContext";
-import { chatWithAI } from "../services/gemini";
+import { chatWithAI } from "../services/ai";
 import type { Signal } from "../services/signalEngine";
 import TradeDetailModal from "./TradeDetailModal";
 

@@ -5,8 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import TradeDetailModal from "../components/TradeDetailModal";
 import { useAuth } from "../context/AuthContext";
+import { analyzeTrackedTrade, chatWithAI } from "../services/ai";
 import { getLearningStats, recordOutcome } from "../services/aiLearning";
-import { analyzeTrackedTrade, chatWithAI } from "../services/gemini";
 import type { Signal } from "../services/signalEngine";
 
 const TRACKED_KEY = "luxia_tracked_trades";
