@@ -75,6 +75,11 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
 
   const isHighProfit = signal.profitPotential === "High";
 
+  // Profit % if TP is hit
+  const tpProfitPct = isLong
+    ? ((signal.takeProfit - signal.entryPrice) / signal.entryPrice) * 100
+    : ((signal.entryPrice - signal.takeProfit) / signal.entryPrice) * 100;
+
   const handleTrack = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isLocked) {
@@ -262,6 +267,20 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
             <div className="text-xs font-bold text-red-500">
               {formatPrice(signal.stopLoss)}
             </div>
+          </div>
+        </div>
+
+        {/* Profit Badge — full width row below price grid */}
+        <div className="px-4 pb-2">
+          <div
+            className="w-full text-center py-1.5 rounded-xl font-bold text-sm"
+            style={{
+              background: "rgba(201,168,76,0.12)",
+              border: "1px solid rgba(201,168,76,0.35)",
+              color: "#92700D",
+            }}
+          >
+            💰 +{tpProfitPct.toFixed(2)}% Profit if TP Hit
           </div>
         </div>
 

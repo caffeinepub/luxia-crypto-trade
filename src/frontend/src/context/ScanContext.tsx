@@ -8,7 +8,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { recordOutcome } from "../services/aiLearning";
-import { fetchCoinGeckoPageViaBackend } from "../services/backendStorage";
+import { fetchMarketCoins } from "../services/marketData";
 import { type Signal, generateSignals } from "../services/signalEngine";
 import { useCredits } from "./CreditContext";
 
@@ -57,87 +57,49 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
     setProgress({ scanned: 0, total: 5000 });
 
     try {
-      const MAX_PAGES = 50;
-      const PER_PAGE = 100;
-      const allCoins: import("../services/marketData").CoinData[] = [];
-      const seenSymbols = new Set<string>();
-      let consecutiveFailures = 0;
+      const coins = await fetchMarketCoins((loaded) => {
+        setProgress({ scanned: loaded, total: 5000 });
+      });
 
-      for (let page = 1; page <= MAX_PAGES; page++) {
-        let data: any[] = [];
-
-        // Try backend route first (avoids CORS/rate limits)
-        try {
-          const backendData = await fetchCoinGeckoPageViaBackend(page);
-          if (Array.isArray(backendData) && backendData.length > 0) {
-            data = backendData;
-          }
-        } catch {}
-
-        // Fallback to direct fetch if backend returned nothing
-        if (data.length === 0) {
-          try {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 8000);
-            const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=volume_desc&per_page=${PER_PAGE}&page=${page}&sparkline=false`;
-            const res = await fetch(url, { signal: controller.signal });
-            clearTimeout(timeout);
-            if (res.ok) {
-              const fetched = await res.json();
-              if (Array.isArray(fetched)) data = fetched;
-            }
-          } catch {}
-        }
-
-        if (data.length === 0) {
-          consecutiveFailures++;
-          if (consecutiveFailures >= 3) break;
-          continue;
-        }
-        consecutiveFailures = 0;
-
-        for (const coin of data) {
-          if (!coin.current_price || !coin.total_volume) continue;
-          const sym = (coin.symbol as string).toUpperCase();
-          if (seenSymbols.has(sym)) continue;
-          seenSymbols.add(sym);
-          allCoins.push({
-            id: coin.id as string,
-            symbol: sym,
-            pairSymbol: `${sym}-USDT`,
-            price: coin.current_price as number,
-            priceChange24h: (coin.price_change_percentage_24h as number) ?? 0,
-            volume24h: coin.total_volume as number,
-            marketCap: (coin.market_cap as number) ?? 0,
-            high24h:
-              (coin.high_24h as number) ??
-              (coin.current_price as number) * 1.03,
-            low24h:
-              (coin.low_24h as number) ?? (coin.current_price as number) * 0.97,
-          });
-        }
-        setProgress({ scanned: page * PER_PAGE, total: 5000 });
+      if (coins.length === 0) {
+        toast.error(
+          "Could not fetch market data. Please try again in a moment.",
+        );
+        return;
       }
 
-      const generated = generateSignals(allCoins);
+      const generated = generateSignals(coins);
       setSignals(generated);
-      setProgress({ scanned: allCoins.length, total: 5000 });
+      setProgress({ scanned: coins.length, total: coins.length });
       setLastScan(new Date());
       setTotalSessionScans((prev) => prev + 1);
-    } catch {
-      // keep previous signals
+
+      if (generated.length === 0) {
+        toast.info(
+          `Scanned ${coins.length} coins — no signals passed filters this hour. Rescanning shortly.`,
+        );
+      } else {
+        toast.success(
+          `Found ${generated.length} signals from ${coins.length} coins scanned!`,
+        );
+      }
+    } catch (err) {
+      console.error("Scan error:", err);
+      toast.error("Scan failed. Retrying...");
     } finally {
       setScanning(false);
       scanningRef.current = false;
     }
   }, [spendCredit]);
 
-  // Initial scan on mount only
+  // Store rescan in a ref so the mount effect doesn't re-run on every render
+  const rescanRef = useRef(rescan);
+  rescanRef.current = rescan;
   useEffect(() => {
-    rescan();
-  }, [rescan]);
+    rescanRef.current();
+  }, []);
 
-  // Live price monitor — fetch real prices from CoinGecko every 60 seconds
+  // Live price monitor — update prices from CoinGecko every 60 seconds
   useEffect(() => {
     const interval = setInterval(async () => {
       if (signals.length === 0) return;

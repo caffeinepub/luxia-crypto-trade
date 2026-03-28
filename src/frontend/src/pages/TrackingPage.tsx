@@ -438,6 +438,12 @@ export default function TrackingPage() {
                   ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
                   : ((trade.entryPrice - currentPrice) / trade.entryPrice) *
                     100;
+                // Static TP profit (entry → TP)
+                const tpProfitPct = isLong
+                  ? ((trade.takeProfit - trade.entryPrice) / trade.entryPrice) *
+                    100
+                  : ((trade.entryPrice - trade.takeProfit) / trade.entryPrice) *
+                    100;
                 const dumpWarning =
                   isLong && currentPrice < trade.entryPrice * 0.995;
                 const earlyDumpRisk =
@@ -533,6 +539,18 @@ export default function TrackingPage() {
                             {formatPrice(currentPrice)}
                           </div>
                         </div>
+                      </div>
+
+                      {/* TP Profit Badge */}
+                      <div
+                        className="w-full text-center py-1.5 rounded-xl font-bold text-sm mb-3"
+                        style={{
+                          background: "rgba(201,168,76,0.12)",
+                          border: "1px solid rgba(201,168,76,0.35)",
+                          color: "#92700D",
+                        }}
+                      >
+                        💰 +{tpProfitPct.toFixed(2)}% Profit if TP Hit
                       </div>
 
                       <div className="mb-3">
