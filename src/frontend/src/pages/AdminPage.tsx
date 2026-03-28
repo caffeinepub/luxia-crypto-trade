@@ -7,6 +7,7 @@ import { motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
+import { loadGlobalStats } from "../services/backendStorage";
 
 type AdminTab = "home" | "users" | "posts" | "ai";
 
@@ -99,6 +100,7 @@ export default function AdminPage() {
 
   // Home stats
   const [guestCount, setGuestCount] = useState(0);
+  const [globalStats, setGlobalStats] = useState({ hits: 0, misses: 0 });
 
   const refreshAI = useCallback(() => {
     try {
@@ -125,6 +127,7 @@ export default function AdminPage() {
     setPosts(getPosts());
     refreshAI();
     setGuestCount(Number(localStorage.getItem("luxia_guest_count") || "0"));
+    loadGlobalStats().then(setGlobalStats);
   }, [refreshAI]);
 
   useEffect(() => {
@@ -399,6 +402,41 @@ export default function AdminPage() {
                   </div>
                   <div className="text-[#0A1628]/50 text-xs mt-1">
                     Active Signals
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Global Trade Stats */}
+            <div className="col-span-2 md:col-span-4 luxury-card p-6 rounded-2xl border border-[#C9A84C]/20">
+              <div className="text-[#B8902A] text-xs font-bold uppercase tracking-wider mb-4">
+                All Users Trade Stats
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center bg-green-50 rounded-xl p-4">
+                  <div className="font-display text-2xl font-bold text-green-600">
+                    {globalStats.hits}
+                  </div>
+                  <div className="text-green-600/60 text-xs mt-1 uppercase">
+                    Total Hits
+                  </div>
+                </div>
+                <div className="text-center bg-red-50 rounded-xl p-4">
+                  <div className="font-display text-2xl font-bold text-red-500">
+                    {globalStats.misses}
+                  </div>
+                  <div className="text-red-400 text-xs mt-1 uppercase">
+                    Total Misses
+                  </div>
+                </div>
+                <div className="text-center bg-[#C9A84C]/10 rounded-xl p-4">
+                  <div className="font-display text-2xl font-bold text-[#B8902A]">
+                    {globalStats.hits + globalStats.misses > 0
+                      ? `${((globalStats.hits / (globalStats.hits + globalStats.misses)) * 100).toFixed(0)}%`
+                      : "—"}
+                  </div>
+                  <div className="text-[#B8902A]/60 text-xs mt-1 uppercase">
+                    Platform Win Rate
                   </div>
                 </div>
               </div>

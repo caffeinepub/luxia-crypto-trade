@@ -1,4 +1,8 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import {
+  loadUsersFromBackend,
+  saveUsersToBackend,
+} from "../services/backendStorage";
 
 export type UserRole = "admin" | "premium" | "guest";
 export type UserStatus = "Active" | "Expired" | "Guest";
@@ -89,6 +93,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return GUEST_USER;
   });
 
+  // On mount: sync users from backend (backend is authoritative)
+  useEffect(() => {
+    loadUsersFromBackend().then((backendRaw) => {
+      if (!backendRaw) return;
+      try {
+        const backendUsers: StoredUser[] = JSON.parse(backendRaw);
+        if (!Array.isArray(backendUsers) || backendUsers.length === 0) return;
+        // Merge: backend users take priority, preserve any locally added users not in backend
+        const localUsers = getUsers();
+        const merged = [...backendUsers];
+        for (const lu of localUsers) {
+          if (!merged.find((bu) => bu.uid === lu.uid)) {
+            merged.push(lu);
+          }
+        }
+        localStorage.setItem(USERS_KEY, JSON.stringify(merged));
+      } catch {}
+    });
+  }, []);
+
   useEffect(() => {
     if (user.expiryDate && user.role !== "admin") {
       const expired = new Date(user.expiryDate) < new Date();
@@ -111,7 +135,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const expired = new Date(userData.expiryDate) < new Date();
       if (expired) userData.status = "Expired";
     }
-    // Ensure credits field is carried over
     if (userData.role === "premium" && userData.credits === undefined) {
       userData.credits = 100;
     }
@@ -129,19 +152,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const users = getUsers();
     users.push(newUser);
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    // Sync to backend (fire-and-forget)
+    saveUsersToBackend(JSON.stringify(users));
   };
 
   const updateUser = (updates: Partial<LuxiaUser>) => {
     const updated = { ...user, ...updates };
     setUser(updated);
     localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
-    // Also update in users store if logged in
     if (user.role !== "guest") {
       const users = getUsers();
       const idx = users.findIndex((u) => u.uid === user.uid);
       if (idx !== -1) {
         users[idx] = { ...users[idx], ...updates };
         localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        // Sync to backend (fire-and-forget)
+        saveUsersToBackend(JSON.stringify(users));
       }
     }
   };
@@ -152,7 +178,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (idx === -1) return;
     users[idx] = { ...users[idx], credits };
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    // If editing the current logged-in user, update session too
+    // Sync to backend (fire-and-forget)
+    saveUsersToBackend(JSON.stringify(users));
     if (user.uid === uid) {
       const updated = { ...user, credits };
       setUser(updated);

@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { getLearningStats } from "../services/aiLearning";
 import type { LearningStats } from "../services/aiLearning";
+import { loadGlobalStats } from "../services/backendStorage";
 
 interface ScanStats {
   coinsScanned: number;
@@ -61,6 +62,7 @@ export default function DashboardPage() {
   );
   const [learningStats, setLearningStats] =
     useState<LearningStats>(getLearningStats);
+  const [globalStats, setGlobalStats] = useState({ hits: 0, misses: 0 });
 
   useEffect(() => {
     if (!breaker) return;
@@ -83,6 +85,10 @@ export default function DashboardPage() {
     const interval = setInterval(tick, 30000);
     return () => clearInterval(interval);
   }, [breaker, stats]);
+
+  useEffect(() => {
+    loadGlobalStats().then(setGlobalStats);
+  }, []);
 
   function toggleBreaker() {
     const next = !breaker;
@@ -187,6 +193,45 @@ export default function DashboardPage() {
             </motion.div>
           ))}
         </div>
+
+        {/* Platform Win Rate */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="luxury-card rounded-2xl p-6 mb-6 border border-[#C9A84C]/20"
+        >
+          <div className="text-[#B8902A] text-xs font-bold uppercase tracking-wider mb-4">
+            Platform Win Rate (All Users)
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="text-center bg-green-50 rounded-xl p-4">
+              <div className="font-display text-2xl font-bold text-green-600">
+                {globalStats.hits}
+              </div>
+              <div className="text-green-600/60 text-xs mt-1 uppercase">
+                Total TP Hits
+              </div>
+            </div>
+            <div className="text-center bg-red-50 rounded-xl p-4">
+              <div className="font-display text-2xl font-bold text-red-500">
+                {globalStats.misses}
+              </div>
+              <div className="text-red-400 text-xs mt-1 uppercase">
+                Total Misses
+              </div>
+            </div>
+            <div className="text-center bg-[#C9A84C]/10 rounded-xl p-4">
+              <div className="font-display text-2xl font-bold text-[#B8902A]">
+                {globalStats.hits + globalStats.misses > 0
+                  ? `${((globalStats.hits / (globalStats.hits + globalStats.misses)) * 100).toFixed(1)}%`
+                  : "—"}
+              </div>
+              <div className="text-[#B8902A]/60 text-xs mt-1 uppercase">
+                Win Rate
+              </div>
+            </div>
+          </div>
+        </motion.div>
 
         {/* Learning Progress */}
         <div className="luxury-card rounded-2xl p-6 mb-6">

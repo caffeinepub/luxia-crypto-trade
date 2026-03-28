@@ -7,6 +7,10 @@ import TradeDetailModal from "../components/TradeDetailModal";
 import { useAuth } from "../context/AuthContext";
 import { analyzeTrackedTrade, chatWithAI } from "../services/ai";
 import { getLearningStats, recordOutcome } from "../services/aiLearning";
+import {
+  loadTrackedTradesFromBackend,
+  saveTrackedTradesToBackend,
+} from "../services/backendStorage";
 import type { Signal } from "../services/signalEngine";
 
 const TRACKED_KEY = "luxia_tracked_trades";
@@ -45,15 +49,14 @@ export default function TrackingPage() {
   );
   const [selectedSignal, setSelectedSignal] = useState<Signal | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [loadingTrades, setLoadingTrades] = useState(true);
 
-  // AI monitoring state
   const [aiMonitoring, setAiMonitoring] = useState<Record<string, string>>({});
   const [aiMonitorTime, setAiMonitorTime] = useState<Record<string, number>>(
     {},
   );
   const [aiLoading, setAiLoading] = useState<Record<string, boolean>>({});
 
-  // AI chat state per trade
   const [chatOpen, setChatOpen] = useState<Record<string, boolean>>({});
   const [chatMessages, setChatMessages] = useState<Record<string, ChatMsg[]>>(
     {},
@@ -62,27 +65,52 @@ export default function TrackingPage() {
   const [chatSending, setChatSending] = useState<Record<string, boolean>>({});
   const msgIdRef = useRef(0);
 
-  // Learning stats
   const [learningStats, setLearningStats] = useState(getLearningStats);
 
-  useEffect(() => {
-    const raw = localStorage.getItem(storageKey);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as TrackedTrade[];
-        const normalized = parsed.map((t) => ({
-          ...t,
-          trackedAt: t.trackedAt ?? t.timestamp,
-        }));
-        setTrades(normalized);
-        const prices: Record<string, number> = {};
-        for (const t of normalized) prices[t.id] = t.currentPrice;
-        setCurrentPrices(prices);
-      } catch {
-        setTrades([]);
+  // Persist helper — saves to localStorage + backend
+  const persistTrades = useCallback(
+    (updated: TrackedTrade[]) => {
+      localStorage.setItem(storageKey, JSON.stringify(updated));
+      if (user.role !== "guest") {
+        saveTrackedTradesToBackend(user.uid, JSON.stringify(updated));
       }
+    },
+    [storageKey, user.role, user.uid],
+  );
+
+  // Load trades on mount: backend first, fallback to localStorage
+  useEffect(() => {
+    async function load() {
+      setLoadingTrades(true);
+      let raw = "";
+      if (user.role === "guest") {
+        raw = localStorage.getItem(GUEST_TRACKED_KEY) || "";
+      } else {
+        // Try backend first
+        raw = await loadTrackedTradesFromBackend(user.uid);
+        if (!raw) {
+          raw = localStorage.getItem(TRACKED_KEY) || "";
+        }
+      }
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as TrackedTrade[];
+          const normalized = parsed.map((t) => ({
+            ...t,
+            trackedAt: t.trackedAt ?? t.timestamp,
+          }));
+          setTrades(normalized);
+          const prices: Record<string, number> = {};
+          for (const t of normalized) prices[t.id] = t.currentPrice;
+          setCurrentPrices(prices);
+        } catch {
+          setTrades([]);
+        }
+      }
+      setLoadingTrades(false);
     }
-  }, [storageKey]);
+    load();
+  }, [user.uid, user.role]);
 
   // Live price updates — fetch real prices from CoinGecko every 60 seconds
   useEffect(() => {
@@ -105,11 +133,10 @@ export default function TrackingPage() {
           return updated;
         });
 
-        // Auto-detect SL hits for tracked trades
         setTrades((prevTrades) => {
           let changed = false;
           const updated = prevTrades.map((trade) => {
-            if (trade.outcome) return trade; // already marked
+            if (trade.outcome) return trade;
             const rp = data[trade.coinId]?.usd;
             if (!rp) return trade;
             const isLong = trade.direction === "LONG";
@@ -136,7 +163,7 @@ export default function TrackingPage() {
             return trade;
           });
           if (changed) {
-            localStorage.setItem(storageKey, JSON.stringify(updated));
+            persistTrades(updated);
             return updated;
           }
           return prevTrades;
@@ -148,9 +175,8 @@ export default function TrackingPage() {
     fetchPrices();
     const interval = setInterval(fetchPrices, 60000);
     return () => clearInterval(interval);
-  }, [trades, storageKey]);
+  }, [trades, persistTrades]);
 
-  // AI monitoring — run on mount and every 60s
   const runAiMonitoring = useCallback(
     async (tradesArr: TrackedTrade[], prices: Record<string, number>) => {
       for (const trade of tradesArr) {
@@ -211,7 +237,7 @@ export default function TrackingPage() {
   const removeTrade = (id: string) => {
     const updated = trades.filter((t) => t.id !== id);
     setTrades(updated);
-    localStorage.setItem(storageKey, JSON.stringify(updated));
+    persistTrades(updated);
     toast.success("Trade removed");
   };
 
@@ -231,7 +257,7 @@ export default function TrackingPage() {
     }
     const updated = trades.map((t) => (t.id === id ? { ...t, outcome } : t));
     setTrades(updated);
-    localStorage.setItem(storageKey, JSON.stringify(updated));
+    persistTrades(updated);
     toast.success(
       outcome === "hit"
         ? "Marked as profit taken! 🎉 AI is learning from this."
@@ -357,7 +383,17 @@ export default function TrackingPage() {
           )}
         </motion.div>
 
-        {trades.length === 0 ? (
+        {loadingTrades ? (
+          <div
+            data-ocid="tracking.loading_state"
+            className="text-center py-16 text-[#0A1628]/40"
+          >
+            <div className="text-4xl mb-3 animate-pulse">⏳</div>
+            <div className="text-sm">
+              Loading your trades from permanent storage...
+            </div>
+          </div>
+        ) : trades.length === 0 ? (
           <div
             data-ocid="tracking.empty_state"
             className="text-center py-16 text-[#0A1628]/40"
@@ -365,7 +401,7 @@ export default function TrackingPage() {
             <div className="text-5xl mb-4">📈</div>
             <div className="font-medium text-lg mb-1">No tracked trades</div>
             <div className="text-sm">
-              Tap “Track Trade” on any signal card to monitor it here
+              Tap &quot;Track Trade&quot; on any signal card to monitor it here
             </div>
           </div>
         ) : (

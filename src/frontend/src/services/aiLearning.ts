@@ -1,4 +1,9 @@
 import { analyzeFailure } from "./aiSkillEngine";
+import {
+  loadAILearningFromBackend,
+  recordGlobalOutcome,
+  saveAILearningToBackend,
+} from "./backendStorage";
 import { updateCoinProfile } from "./coinProfiler";
 
 const LEARNING_KEY = "luxia_ai_learning";
@@ -11,7 +16,6 @@ export interface TradeOutcome {
   tpProbability: number;
   outcome: "hit" | "missed";
   timestamp: number;
-  // Optional extra context for better failure analysis
   rsiValue?: number;
   macdHistogram?: number;
   volumeRatio?: number;
@@ -46,7 +50,31 @@ function loadData(): TradeOutcome[] {
 function saveData(data: TradeOutcome[]): void {
   const trimmed = data.slice(-500);
   localStorage.setItem(LEARNING_KEY, JSON.stringify(trimmed));
+  // Sync to backend (fire-and-forget)
+  saveAILearningToBackend(JSON.stringify(trimmed));
 }
+
+// Initialize from backend on module load (non-blocking)
+let initialized = false;
+async function ensureInitialized(): Promise<void> {
+  if (initialized) return;
+  initialized = true;
+  try {
+    const backendData = await loadAILearningFromBackend();
+    if (!backendData) return;
+    const backendParsed: TradeOutcome[] = JSON.parse(backendData);
+    if (!Array.isArray(backendParsed) || backendParsed.length === 0) return;
+    const localData = loadData();
+    const merged = [...localData];
+    for (const item of backendParsed) {
+      if (!merged.find((m) => m.id === item.id)) merged.push(item);
+    }
+    merged.sort((a, b) => a.timestamp - b.timestamp);
+    const trimmed = merged.slice(-500);
+    localStorage.setItem(LEARNING_KEY, JSON.stringify(trimmed));
+  } catch {}
+}
+ensureInitialized();
 
 export function recordOutcome(outcome: TradeOutcome): void {
   const data = loadData();
@@ -54,7 +82,9 @@ export function recordOutcome(outcome: TradeOutcome): void {
   filtered.push(outcome);
   saveData(filtered);
 
-  // Per-coin profiling
+  // Record global outcome for admin stats (fire-and-forget)
+  recordGlobalOutcome(outcome.outcome === "hit" ? "hit" : "miss");
+
   const coinSymbol = outcome.symbol.replace("-USDT", "").replace("/USDT", "");
   updateCoinProfile(
     coinSymbol,
@@ -64,7 +94,6 @@ export function recordOutcome(outcome: TradeOutcome): void {
     outcome.direction as "LONG" | "SHORT",
   );
 
-  // Deep failure analysis for missed trades
   if (outcome.outcome === "missed") {
     analyzeFailure(outcome);
   }

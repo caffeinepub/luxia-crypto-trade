@@ -1,13 +1,87 @@
 import Outcall "http-outcalls/outcall";
+import Array "mo:base/Array";
+import Nat "mo:base/Nat";
+import Text "mo:base/Text";
 
-persistent actor {
+actor {
 
-  // Required transform for HTTP outcalls — strips headers for consensus
+  // All registered users serialised as JSON
+  stable var usersData : Text = "";
+
+  // Per-user tracked trades: association list of (uid, json) tuples
+  stable var trackedTradesEntries : [(Text, Text)] = [];
+
+  // Shared AI learning data (one store for all users)
+  stable var aiLearningData : Text = "";
+
+  // Global trade outcome counters
+  stable var globalHits   : Nat = 0;
+  stable var globalMisses : Nat = 0;
+
+  // Helper: find value in assoc list
+  func assocGet(entries : [(Text, Text)], key : Text) : Text {
+    for ((k, v) in entries.vals()) {
+      if (k == key) return v;
+    };
+    return "";
+  };
+
+  // Helper: upsert into assoc list
+  func assocPut(entries : [(Text, Text)], key : Text, value : Text) : [(Text, Text)] {
+    let filtered = Array.filter(entries, func((k, _) : (Text, Text)) : Bool { k != key });
+    Array.append(filtered, [(key, value)])
+  };
+
+  // ── Users ────────────────────────────────────────────────────────────────
+
+  public func saveUsers(data : Text) : async () {
+    usersData := data;
+  };
+
+  public query func getUsers() : async Text {
+    usersData
+  };
+
+  // ── Per-user tracked trades ───────────────────────────────────────────────
+
+  public func saveTrackedTrades(uid : Text, data : Text) : async () {
+    trackedTradesEntries := assocPut(trackedTradesEntries, uid, data);
+  };
+
+  public query func getTrackedTrades(uid : Text) : async Text {
+    assocGet(trackedTradesEntries, uid)
+  };
+
+  // ── Shared AI learning ───────────────────────────────────────────────────
+
+  public func saveAILearning(data : Text) : async () {
+    aiLearningData := data;
+  };
+
+  public query func getAILearning() : async Text {
+    aiLearningData
+  };
+
+  // ── Global trade stats ───────────────────────────────────────────────────
+
+  public func recordGlobalOutcome(outcome : Text) : async () {
+    if (outcome == "hit") {
+      globalHits += 1;
+    } else {
+      globalMisses += 1;
+    };
+  };
+
+  public query func getGlobalStats() : async Text {
+    "{\"hits\":" # Nat.toText(globalHits) # ",\"misses\":" # Nat.toText(globalMisses) # "}"
+  };
+
+  // ── HTTP outcalls ────────────────────────────────────────────────────────
+
   public query func transform(input : Outcall.TransformationInput) : async Outcall.TransformationOutput {
     Outcall.transform(input)
   };
 
-  // Fetch all BingX spot trading pairs — bypasses browser CORS
   public func getBingXSymbols() : async Text {
     try {
       await Outcall.httpGetRequest(
@@ -20,7 +94,6 @@ persistent actor {
     }
   };
 
-  // Fetch CoinGecko market page — bypasses browser CORS/rate-limits
   public func getCoinGeckoPage(page : Nat) : async Text {
     let pageStr = switch (page) {
       case 1 { "1" }; case 2 { "2" }; case 3 { "3" }; case 4 { "4" };
