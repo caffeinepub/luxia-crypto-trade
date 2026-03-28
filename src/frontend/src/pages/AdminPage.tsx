@@ -17,6 +17,7 @@ interface StoredUser {
   role: string;
   expiryDate: string | null;
   status: string;
+  credits?: number;
 }
 
 interface Post {
@@ -59,7 +60,7 @@ const DURATION_OPTIONS = [
 ];
 
 export default function AdminPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, updateUserCredits } = useAuth();
   const [tab, setTab] = useState<AdminTab>("home");
 
   // Users state
@@ -69,6 +70,9 @@ export default function AdminPage() {
   const [newPassword, setNewPassword] = useState("");
   const [newDuration, setNewDuration] = useState(30);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [newCredits, setNewCredits] = useState(100);
+  const [editingCreditsId, setEditingCreditsId] = useState<string | null>(null);
+  const [creditEditValue, setCreditEditValue] = useState(100);
 
   // Posts state
   const [posts, setPosts] = useState<Post[]>([]);
@@ -148,6 +152,7 @@ export default function AdminPage() {
       role: "premium",
       expiryDate: expiry,
       status: "Active",
+      credits: newCredits,
     };
     const updated = [...existing, newUser];
     localStorage.setItem("luxia_users", JSON.stringify(updated));
@@ -155,6 +160,7 @@ export default function AdminPage() {
     setNewUsername("");
     setNewPassword("");
     setNewDuration(30);
+    setNewCredits(100);
     setShowAddUser(false);
     toast.success(`User ${newUser.username} created (${uid})`);
   }
@@ -469,11 +475,27 @@ export default function AdminPage() {
                       ))}
                     </div>
                   </div>
+                  <div className="mt-4">
+                    <Label className="text-xs uppercase tracking-wider text-[#0A1628]/60 mb-1.5 block">
+                      Starting Credits
+                    </Label>
+                    <Input
+                      data-ocid="admin.users.input"
+                      type="number"
+                      min={0}
+                      value={newCredits}
+                      onChange={(e) =>
+                        setNewCredits(Math.max(0, Number(e.target.value)))
+                      }
+                      placeholder="100"
+                      className="max-w-[140px]"
+                    />
+                  </div>
                   <Button
                     data-ocid="admin.users.submit_button"
                     onClick={createUser}
                     style={{ background: "#C9A84C", color: "#0A1628" }}
-                    className="font-bold"
+                    className="font-bold mt-4"
                   >
                     Create User
                   </Button>
@@ -489,6 +511,7 @@ export default function AdminPage() {
                       <th className="text-left py-3 pr-3">Role</th>
                       <th className="text-left py-3 pr-3">Status</th>
                       <th className="text-left py-3 pr-3">Expiry</th>
+                      <th className="text-left py-3 pr-3">Credits</th>
                       <th className="text-left py-3">Actions</th>
                     </tr>
                   </thead>
@@ -528,6 +551,57 @@ export default function AdminPage() {
                         </td>
                         <td className="py-2.5 pr-3 text-[#0A1628]/50 text-xs">
                           {u.expiryDate ?? "—"}
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          {u.role === "admin" ? (
+                            <span className="text-[#C9A84C] font-bold text-xs">
+                              ∞
+                            </span>
+                          ) : (
+                            <div>
+                              {editingCreditsId === u.uid ? (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={creditEditValue}
+                                    onChange={(e) =>
+                                      setCreditEditValue(
+                                        Math.max(0, Number(e.target.value)),
+                                      )
+                                    }
+                                    className="w-16 text-xs border border-[#C9A84C]/40 rounded px-1 py-0.5 focus:outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      updateUserCredits(u.uid, creditEditValue);
+                                      const all = getUsers();
+                                      setUsers(all);
+                                      setEditingCreditsId(null);
+                                    }}
+                                    className="text-[10px] px-2 py-0.5 rounded-full bg-[#C9A84C]/20 text-[#B8902A] hover:bg-[#C9A84C]/40 font-bold"
+                                  >
+                                    Save
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCreditEditValue(u.credits ?? 0);
+                                    setEditingCreditsId(u.uid);
+                                  }}
+                                  className="text-xs text-[#0A1628] hover:text-[#B8902A] font-semibold"
+                                >
+                                  {u.credits ?? 0}{" "}
+                                  <span className="text-[10px] text-gray-400">
+                                    (edit)
+                                  </span>
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="py-2.5">
                           <div className="flex items-center gap-2 flex-wrap">

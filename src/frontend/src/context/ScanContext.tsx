@@ -9,6 +9,7 @@ import {
 import { toast } from "sonner";
 import { recordOutcome } from "../services/aiLearning";
 import { type Signal, generateSignals } from "../services/signalEngine";
+import { useCredits } from "./CreditContext";
 
 interface ScanContextValue {
   signals: Signal[];
@@ -25,11 +26,12 @@ const ScanContext = createContext<ScanContextValue | null>(null);
 export function ScanProvider({ children }: { children: React.ReactNode }) {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState({ scanned: 0, total: 2000 });
+  const [progress, setProgress] = useState({ scanned: 0, total: 5000 });
   const [totalSessionScans, setTotalSessionScans] = useState(0);
   const [lastScan, setLastScan] = useState<Date | null>(null);
   const scanningRef = useRef(false);
   const rescanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { spendCredit } = useCredits();
 
   const updateSignalPrice = useCallback((id: string, price: number) => {
     setSignals((prev) =>
@@ -39,12 +41,23 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
 
   const rescan = useCallback(async () => {
     if (scanningRef.current) return;
+
+    // Check and spend a credit
+    const allowed = spendCredit();
+    if (!allowed) {
+      toast.error(
+        "No credits remaining — contact the founder to purchase more",
+        { duration: 5000 },
+      );
+      return;
+    }
+
     scanningRef.current = true;
     setScanning(true);
-    setProgress({ scanned: 0, total: 2000 });
+    setProgress({ scanned: 0, total: 5000 });
 
     try {
-      const MAX_PAGES = 20;
+      const MAX_PAGES = 50;
       const PER_PAGE = 100;
       const allCoins: import("../services/marketData").CoinData[] = [];
       const seenSymbols = new Set<string>();
@@ -82,9 +95,15 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
               priceChange24h: (coin.price_change_percentage_24h as number) ?? 0,
               volume24h: coin.total_volume as number,
               marketCap: (coin.market_cap as number) ?? 0,
+              high24h:
+                (coin.high_24h as number) ??
+                (coin.current_price as number) * 1.03,
+              low24h:
+                (coin.low_24h as number) ??
+                (coin.current_price as number) * 0.97,
             });
           }
-          setProgress({ scanned: page * PER_PAGE, total: 2000 });
+          setProgress({ scanned: page * PER_PAGE, total: 5000 });
         } catch {
           consecutiveFailures++;
           if (consecutiveFailures >= 3) break;
@@ -93,7 +112,7 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
 
       const generated = generateSignals(allCoins);
       setSignals(generated);
-      setProgress({ scanned: allCoins.length, total: 2000 });
+      setProgress({ scanned: allCoins.length, total: 5000 });
       setLastScan(new Date());
       setTotalSessionScans((prev) => prev + 1);
     } catch {
@@ -102,7 +121,7 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
       setScanning(false);
       scanningRef.current = false;
     }
-  }, []);
+  }, [spendCredit]);
 
   // Initial scan on mount only
   useEffect(() => {

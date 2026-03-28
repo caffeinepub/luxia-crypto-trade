@@ -22,7 +22,11 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import LoginModal from "./components/LoginModal";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { CreditProvider } from "./context/CreditContext";
+import {
+  CreditLockout,
+  CreditProvider,
+  useCredits,
+} from "./context/CreditContext";
 import { ScanProvider, useScan } from "./context/ScanContext";
 import AISkillsPage from "./pages/AISkillsPage";
 import ActiveSignalsPage from "./pages/ActiveSignalsPage";
@@ -122,6 +126,7 @@ function RescanButton() {
 
 function AppInner() {
   const { user, logout, isAdmin } = useAuth();
+  const { credits, isLocked } = useCredits();
   const [page, setPage] = useState<Page>("home");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -182,6 +187,7 @@ function AppInner() {
 
   return (
     <div className="min-h-screen bg-white">
+      {isLocked && <CreditLockout />}
       {/* Top Navigation Bar */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-[#0A1628]/10 shadow-sm">
         {/* Row 1: Hamburger + Brand + Rescan + Login */}
@@ -317,7 +323,7 @@ function AppInner() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2 mb-2">
                   <div className="bg-white/[0.06] rounded-lg p-2">
                     <div className="text-white/40 text-[9px] uppercase tracking-wider mb-0.5">
                       Expiry
@@ -335,6 +341,14 @@ function AppInner() {
                     >
                       {user.status}
                     </div>
+                  </div>
+                </div>
+                <div className="bg-white/[0.06] rounded-lg p-2">
+                  <div className="text-white/40 text-[9px] uppercase tracking-wider mb-0.5">
+                    Credits
+                  </div>
+                  <div className="text-[#C9A84C] text-xs font-bold">
+                    {isAdmin ? "∞ Unlimited" : `${credits} remaining`}
                   </div>
                 </div>
 
@@ -446,11 +460,11 @@ function AppInner() {
 
 function AppWithProviders() {
   return (
-    <ScanProvider>
-      <CreditProvider>
+    <CreditProvider>
+      <ScanProvider>
         <AppInner />
-      </CreditProvider>
-    </ScanProvider>
+      </ScanProvider>
+    </CreditProvider>
   );
 }
 

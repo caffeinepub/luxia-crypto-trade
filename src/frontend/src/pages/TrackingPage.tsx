@@ -95,6 +95,7 @@ export default function TrackingPage() {
         const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
         if (!res.ok) return;
         const data = await res.json();
+
         setCurrentPrices((prev) => {
           const updated = { ...prev };
           for (const trade of trades) {
@@ -103,6 +104,43 @@ export default function TrackingPage() {
           }
           return updated;
         });
+
+        // Auto-detect SL hits for tracked trades
+        setTrades((prevTrades) => {
+          let changed = false;
+          const updated = prevTrades.map((trade) => {
+            if (trade.outcome) return trade; // already marked
+            const rp = data[trade.coinId]?.usd;
+            if (!rp) return trade;
+            const isLong = trade.direction === "LONG";
+            const slHit = isLong ? rp <= trade.stopLoss : rp >= trade.stopLoss;
+            if (slHit) {
+              changed = true;
+              recordOutcome({
+                id: trade.id,
+                symbol: trade.symbol,
+                direction: trade.direction,
+                confidence: trade.confidence,
+                tpProbability: trade.tpProbability,
+                outcome: "missed",
+                timestamp: Date.now(),
+                entryPrice: trade.entryPrice,
+                stopLoss: trade.stopLoss,
+              });
+              toast.error(
+                `⚠️ ${trade.symbol} hit SL — marked as loss. AI analyzing...`,
+                { duration: 5000 },
+              );
+              return { ...trade, outcome: "missed" as const };
+            }
+            return trade;
+          });
+          if (changed) {
+            localStorage.setItem(storageKey, JSON.stringify(updated));
+            return updated;
+          }
+          return prevTrades;
+        });
       } catch {
         /* keep existing prices */
       }
@@ -110,7 +148,7 @@ export default function TrackingPage() {
     fetchPrices();
     const interval = setInterval(fetchPrices, 60000);
     return () => clearInterval(interval);
-  }, [trades]);
+  }, [trades, storageKey]);
 
   // AI monitoring — run on mount and every 60s
   const runAiMonitoring = useCallback(
@@ -235,12 +273,24 @@ export default function TrackingPage() {
     const history = (chatMessages[trade.id] || [])
       .slice(-4)
       .map(({ role, text }) => ({ role, text }));
-    const reply = await chatWithAI(tradeCtx, msg, history);
+    let reply = `Based on the ${trade.symbol} trade data: entry at ${formatPrice(trade.entryPrice)}, current price ${formatPrice(currentPrice)}. Monitor price action and consider the SL at ${formatPrice(trade.stopLoss)} as your risk boundary.`;
+    try {
+      reply = await chatWithAI(tradeCtx, msg, history);
+    } catch {
+      // fallback reply stays
+    }
+    const displayReply =
+      reply &&
+      reply.trim() !== "" &&
+      !reply.toLowerCase().startsWith("error:") &&
+      !reply.toLowerCase().includes("ai unavailable")
+        ? reply
+        : `For ${trade.symbol}: Entry ${formatPrice(trade.entryPrice)}, TP ${formatPrice(trade.takeProfit)}, SL ${formatPrice(trade.stopLoss)}. Monitor momentum carefully and exit near TP target.`;
     setChatMessages((prev) => ({
       ...prev,
       [trade.id]: [
         ...(prev[trade.id] || []),
-        { id: ++msgIdRef.current, role: "ai", text: reply },
+        { id: ++msgIdRef.current, role: "ai", text: displayReply },
       ],
     }));
     setChatSending((prev) => ({ ...prev, [trade.id]: false }));
@@ -315,7 +365,7 @@ export default function TrackingPage() {
             <div className="text-5xl mb-4">📈</div>
             <div className="font-medium text-lg mb-1">No tracked trades</div>
             <div className="text-sm">
-              Tap "Track Trade" on any signal card to monitor it here
+              Tap “Track Trade” on any signal card to monitor it here
             </div>
           </div>
         ) : (
@@ -651,7 +701,9 @@ export default function TrackingPage() {
                               : "bg-red-100 text-red-600"
                           }`}
                         >
-                          {trade.outcome === "hit" ? "✅ TP Hit" : "❌ Missed"}
+                          {trade.outcome === "hit"
+                            ? "✅ TP Hit"
+                            : "❌ SL Hit — AI Learning"}
                         </div>
                       ) : null}
 

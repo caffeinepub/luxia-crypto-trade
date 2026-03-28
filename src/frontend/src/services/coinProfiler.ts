@@ -56,7 +56,7 @@ export function getCoinProfile(symbol: string): CoinProfile {
     profiles[symbol] ?? {
       symbol,
       avgVolatility: 3.0, // default 3% daily move
-      slMultiplier: 1.5,
+      slMultiplier: 2.0, // raised from 1.5 — wider SL from the start
       wins: 0,
       losses: 0,
       consecutiveLosses: 0,

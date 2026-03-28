@@ -34,7 +34,7 @@ function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
       return signals.filter(
         (s) =>
           s.action === "BUY" &&
-          s.estimatedHours <= 12 &&
+          s.estimatedHours <= 6 &&
           (s.takeProfit - s.entryPrice) / (s.entryPrice || 1) <= 0.1,
       );
     default:
@@ -88,7 +88,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
             <span className="text-3xl">{icon}</span>
             <h1 className="text-[#0A1628] font-bold text-2xl">{title}</h1>
           </div>
-          <p className="text-[#0A1628]/50 text-sm mb-3">{subtitle}</p>
+          <p className="text-[#0A1628]/50 text-sm mb-3">
+            {type === "fast" ? "TP target in under 6 hours" : subtitle}
+          </p>
           <div className="flex items-center gap-3 text-xs text-[#0A1628]/40">
             <span className="bg-green-50 text-green-700 px-2 py-1 rounded-full font-medium">
               {filtered.length} signals found

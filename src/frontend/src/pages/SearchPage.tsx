@@ -109,6 +109,8 @@ export default function SearchPage() {
           priceChange24h: coin.price_change_percentage_24h ?? 0,
           volume24h: coin.total_volume,
           marketCap: coin.market_cap ?? 0,
+          high24h: (coin as any).high_24h ?? coin.current_price * 1.03,
+          low24h: (coin as any).low_24h ?? coin.current_price * 0.97,
         };
         const sigs = generateSignals([coinData]);
         setProgress(100);
@@ -137,6 +139,8 @@ export default function SearchPage() {
         priceChange24h: raw.price_change_percentage_24h ?? 0,
         volume24h: raw.total_volume,
         marketCap: raw.market_cap ?? 0,
+        high24h: (raw as any).high_24h ?? raw.current_price * 1.03,
+        low24h: (raw as any).low_24h ?? raw.current_price * 0.97,
       };
       const sigs = generateSignals([coinData]);
       setProgress(100);

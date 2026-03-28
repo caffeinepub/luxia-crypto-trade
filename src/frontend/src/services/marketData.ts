@@ -6,6 +6,8 @@ export interface CoinData {
   priceChange24h: number;
   volume24h: number;
   marketCap: number;
+  high24h: number;
+  low24h: number;
 }
 
 export async function fetchMarketCoins(): Promise<CoinData[]> {
@@ -39,14 +41,19 @@ export async function fetchMarketCoins(): Promise<CoinData[]> {
         const sym = (coin.symbol as string).toUpperCase();
         if (seenSymbols.has(sym)) continue;
         seenSymbols.add(sym);
+        const price = coin.current_price as number;
+        const high24h = (coin.high_24h as number) ?? price * 1.03;
+        const low24h = (coin.low_24h as number) ?? price * 0.97;
         allCoins.push({
           id: coin.id as string,
           symbol: sym,
           pairSymbol: `${sym}-USDT`,
-          price: coin.current_price as number,
+          price,
           priceChange24h: (coin.price_change_percentage_24h as number) ?? 0,
           volume24h: coin.total_volume as number,
           marketCap: (coin.market_cap as number) ?? 0,
+          high24h,
+          low24h,
         });
       }
     } catch {

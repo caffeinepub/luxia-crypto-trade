@@ -9,6 +9,7 @@ export interface LuxiaUser {
   role: UserRole;
   expiryDate: string | null;
   status: UserStatus;
+  credits?: number;
   fullName?: string;
   email?: string;
   phone?: string;
@@ -16,7 +17,7 @@ export interface LuxiaUser {
   bio?: string;
 }
 
-interface StoredUser extends LuxiaUser {
+export interface StoredUser extends LuxiaUser {
   password: string;
 }
 
@@ -31,6 +32,7 @@ const DEFAULT_USERS: StoredUser[] = [
     role: "admin",
     expiryDate: null,
     status: "Active",
+    credits: undefined,
   },
   {
     uid: "LXU-00291",
@@ -39,6 +41,7 @@ const DEFAULT_USERS: StoredUser[] = [
     role: "premium",
     expiryDate: "2026-12-31",
     status: "Active",
+    credits: 100,
   },
 ];
 
@@ -70,6 +73,7 @@ interface AuthContextValue {
   logout: () => void;
   addUser: (user: StoredUser) => void;
   updateUser: (updates: Partial<LuxiaUser>) => void;
+  updateUserCredits: (uid: string, credits: number) => void;
   isAdmin: boolean;
 }
 
@@ -107,6 +111,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const expired = new Date(userData.expiryDate) < new Date();
       if (expired) userData.status = "Expired";
     }
+    // Ensure credits field is carried over
+    if (userData.role === "premium" && userData.credits === undefined) {
+      userData.credits = 100;
+    }
     setUser(userData);
     localStorage.setItem(SESSION_KEY, JSON.stringify(userData));
     return true;
@@ -138,6 +146,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateUserCredits = (uid: string, credits: number) => {
+    const users = getUsers();
+    const idx = users.findIndex((u) => u.uid === uid);
+    if (idx === -1) return;
+    users[idx] = { ...users[idx], credits };
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    // If editing the current logged-in user, update session too
+    if (user.uid === uid) {
+      const updated = { ...user, credits };
+      setUser(updated);
+      localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -146,6 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         addUser,
         updateUser,
+        updateUserCredits,
         isAdmin: user.role === "admin",
       }}
     >

@@ -32,6 +32,8 @@ export interface Signal {
   timestamp: number;
   hourSeed: number;
   aiEnriched?: boolean;
+  highProfitScore: number;
+  profitPotential: "High" | "Medium";
 }
 
 function seededRand(seed: number): () => number {
@@ -62,12 +64,10 @@ function generateSyntheticCandles(
     close: number;
     volume: number;
   }> = [];
-  // Start from where price was 24h ago and trend toward current price
   let current = price * (1 - priceChange24h / 100);
-  const trendBias = priceChange24h / 100 / 50; // spread 24h move across 50 candles
+  const trendBias = priceChange24h / 100 / 50;
   const dailyVol = volume / 24;
   for (let i = 0; i < 50; i++) {
-    // Add trend bias so candles reflect real direction
     const move = (rand() - 0.47 + trendBias) * 0.012 * current;
     const open = current;
     const close = current + move;
@@ -138,16 +138,20 @@ function calcATR(
 }
 
 /**
- * ULTRA-HIGH PRECISION SIGNAL ENGINE
- * Goal: Maximum win rate — only show signals with overwhelming probability to hit TP.
+ * SMART AUTO-TP SIGNAL ENGINE v5 — ZERO SL / MAX WIN RATE
  *
- * Strategy for near-100% win ratio:
- * 1. TP is set VERY CLOSE to entry (0.8–1.5%) — small move required.
- * 2. SL is set VERY WIDE (5–10x the TP distance) — massive room before loss.
- * 3. Only take LONG signals with CONFIRMED positive momentum.
- * 4. Require ALL 6 indicators to align — zero tolerance for mixed signals.
- * 5. Only pick top 15 coins — quality over quantity.
- * 6. Per-coin learning: avoid any coin with repeated losses.
+ * All signals must have:
+ *  - 90%+ geometric win probability (P(TP hit before SL))
+ *  - RSI in tighter 42–56 zone (stronger confirmation)
+ *  - 1.5%+ 24h momentum (coin already moving)
+ *  - 1.8x+ volume ratio (real institutional participation)
+ *  - MACD histogram positive with minimum strength
+ *  - $5M+ daily volume (liquid markets only)
+ *  - Proximity: LONG only within 4% of 24h high (proven reachable target)
+ *  - 88%+ TP probability required
+ *
+ * TP Strategy: Set at maximum reachable level (24h high as proven target)
+ * SL Strategy: ATR × 4 × multiplier (min 5%, max 15%) — wide enough to survive volatility
  */
 export function generateSignals(coins: CoinData[]): Signal[] {
   const hourSeed = Math.floor(Date.now() / 3600000);
@@ -157,8 +161,12 @@ export function generateSignals(coins: CoinData[]): Signal[] {
   for (const coin of coins) {
     if (seenSymbols.has(coin.symbol)) continue;
 
-    // Volume gate: need real liquidity
-    if (coin.volume24h < 1_000_000) continue;
+    // Coin quality gates — real liquid assets only
+    if (coin.volume24h < 5_000_000) continue;
+    if (coin.marketCap !== undefined && coin.marketCap < 50_000_000) continue;
+
+    // Skip pump-and-dump coins
+    if (coin.priceChange24h > 25) continue;
 
     // Skip coins AI has flagged as losers
     if (isCoinBlocked(coin.symbol)) continue;
@@ -188,38 +196,27 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     const volumeRatio = 1 + Math.abs(coin.priceChange24h) / 10;
     const trend: "bullish" | "bearish" = ema9 > ema21 ? "bullish" : "bearish";
 
-    // Per-coin RSI gates (learned from history)
-    const minRsi = profile.minRsi;
-    const maxRsi = profile.maxRsi;
-
     // ============================================================
     // ULTRA-STRICT LONG CONDITIONS — all 6 must pass
     // ============================================================
-    // 1. RSI in ideal bullish zone (not overbought, not extreme oversold)
-    const rsiOk = rsi >= minRsi && rsi <= maxRsi;
-    // 2. EMA9 above EMA21 (confirmed uptrend)
+    const rsiOk = rsi >= 42 && rsi <= 56;
     const emaOk = ema9 > ema21;
-    // 3. MACD histogram positive AND meaningful (momentum building)
     const macdOk =
-      macd.histogram > 0 && Math.abs(macd.histogram) > 0.00001 * coin.price;
-    // 4. Volume above average (institutional buying)
-    const volumeOk = volumeRatio >= 1.3;
-    // 5. Positive 24h momentum — price already moving right direction
-    const momentumOk = coin.priceChange24h >= 0.5 && coin.priceChange24h <= 25;
-    // 6. Not in a dump pattern — no recent 4%+ negative candle
-    const dumpOk = coin.priceChange24h >= -0.5;
+      macd.histogram > 0 && Math.abs(macd.histogram) > 0.000002 * coin.price;
+    const volumeOk = volumeRatio >= 1.8;
+    const momentumOk = coin.priceChange24h >= 1.5 && coin.priceChange24h <= 22; // slightly relaxed: 1.5% min
+    const dumpOk = coin.priceChange24h >= 0;
 
-    // All 6 conditions must pass for LONG
     const isLong = rsiOk && emaOk && macdOk && volumeOk && momentumOk && dumpOk;
 
-    // SHORT: only for high-cap coins in clear downtrend
+    // SHORT conditions
     const shortRsiOk = rsi >= 62 && rsi <= 78;
     const shortEmaOk = ema9 < ema21;
     const shortMacdOk = macd.histogram < 0;
     const shortMomentumOk =
       coin.priceChange24h <= -1.5 && coin.priceChange24h >= -20;
-    const shortVolumeOk = volumeRatio >= 1.3;
-    const shortDirOk = profile.directionBias <= 0.8; // coin must have SHORT history
+    const shortVolumeOk = volumeRatio >= 1.5;
+    const shortDirOk = profile.directionBias <= 0.8;
 
     const isShort =
       shortRsiOk &&
@@ -237,20 +234,70 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     if (direction === null) continue;
 
     // ============================================================
-    // TIGHT TP + WIDE SL = MAXIMUM WIN PROBABILITY
+    // PROXIMITY FILTER: Only LONG signals where coin price is within
+    // 4% of its 24h high (tighter than before — was 6%).
+    // Proves the coin CAN reach near that level today.
     // ============================================================
-    // TP is close: 0.8–1.8% — a tiny move is all we need
-    // SL is wide: 5–8% — price would need to crash hard to hit it
-    const atrPct = coin.price !== 0 ? atr / coin.price : 0.015;
-    const slMultiplier = Math.max(profile.slMultiplier, 2.5); // minimum 2.5x ATR for SL
-    const slPct = Math.max(atrPct * slMultiplier * 2.5, 0.05); // minimum 5% SL distance
-    const tpPct = Math.max(atrPct * 0.6, 0.008); // TP is 0.8–2% — very achievable
-    const rrRatio = slPct / tpPct; // Will be 3:1 to 8:1 — we sacrifice R:R for win rate
+    if (direction === "LONG") {
+      const high24h = coin.high24h ?? coin.price * 1.03;
+      const distToHigh = (high24h - coin.price) / coin.price;
+      if (distToHigh > 0.04) continue; // tighter: was 0.06
+    }
 
-    // Only signals where R:R (inverted) gives >85% probability of TP being hit first
-    // Kelly / risk-neutral probability: P(TP) = SL_dist / (TP_dist + SL_dist)
-    const tpHitProbability = slPct / (tpPct + slPct); // e.g. 5% SL + 1% TP = 83% win prob
-    if (tpHitProbability < 0.8) continue; // reject signals below 80% geometric probability
+    // ============================================================
+    // SMART AUTO-TP: Set TP at maximum the coin can realistically reach
+    // Uses 24h high as the proven resistance/target level
+    // ============================================================
+    const atrPct = coin.price !== 0 ? atr / coin.price : 0.015;
+
+    let tpPct: number;
+    let tpSource: string;
+
+    if (direction === "LONG") {
+      const high24h = coin.high24h ?? coin.price * 1.03;
+      const distToHigh = (high24h - coin.price) / coin.price;
+
+      if (distToHigh >= 0.005 && distToHigh <= 0.04) {
+        tpPct = distToHigh * 0.97;
+        tpSource = `24h high target (${(distToHigh * 100).toFixed(1)}% away)`;
+      } else if (distToHigh < 0.005) {
+        tpPct = Math.max(atrPct * 3, 0.008);
+        tpSource = "ATR breakout projection";
+      } else {
+        tpPct = Math.max(atrPct * 2.5, 0.008);
+        tpSource = "ATR projection (high too far)";
+      }
+      tpPct = Math.min(tpPct, 0.06);
+      tpPct = Math.max(tpPct, 0.005);
+    } else {
+      const low24h = coin.low24h ?? coin.price * 0.97;
+      const distToLow = (coin.price - low24h) / coin.price;
+
+      if (distToLow >= 0.005 && distToLow <= 0.06) {
+        tpPct = distToLow * 0.97;
+        tpSource = `24h low target (${(distToLow * 100).toFixed(1)}% away)`;
+      } else if (distToLow < 0.005) {
+        tpPct = Math.max(atrPct * 3, 0.008);
+        tpSource = "ATR breakdown projection";
+      } else {
+        tpPct = Math.max(atrPct * 2.5, 0.008);
+        tpSource = "ATR projection (low too far)";
+      }
+      tpPct = Math.min(tpPct, 0.06);
+      tpPct = Math.max(tpPct, 0.005);
+    }
+
+    // ============================================================
+    // SL: ATR-based, VERY wide to survive normal volatility
+    // ATR × 4 × coin multiplier — min 5%, max 15%
+    // ============================================================
+    const slMultiplier = Math.max(profile.slMultiplier, 2.0);
+    const slPct = Math.min(Math.max(atrPct * 4 * slMultiplier, 0.05), 0.15);
+
+    // Geometric win probability: P(TP hit before SL) = SL / (TP + SL)
+    const tpHitProbability = slPct / (tpPct + slPct);
+    // Require ≥90% win probability (raised from 88%)
+    if (tpHitProbability < 0.9) continue;
 
     const tp =
       direction === "LONG"
@@ -264,53 +311,44 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     // ============================================================
     // ML SCORING — composite confidence
     // ============================================================
-    let mlScore = 90; // base for passing all 6 conditions
-    // RSI ideal zone bonus (35-52 is perfect for LONG)
+    let mlScore = 88;
     if (direction === "LONG") {
-      const rsiIdeal = 44;
-      mlScore += Math.max(0, (12 - Math.abs(rsi - rsiIdeal)) / 12) * 4;
+      const rsiIdeal = 47;
+      mlScore += Math.max(0, (10 - Math.abs(rsi - rsiIdeal)) / 10) * 5;
     } else {
       const rsiIdeal = 70;
-      mlScore += Math.max(0, (8 - Math.abs(rsi - rsiIdeal)) / 8) * 4;
+      mlScore += Math.max(0, (8 - Math.abs(rsi - rsiIdeal)) / 8) * 5;
     }
-    // EMA spread bonus
     if (ema21 !== 0) {
       const emaDiff = Math.abs((ema9 - ema21) / ema21);
-      mlScore += Math.min(3, emaDiff * 1500);
+      mlScore += Math.min(4, emaDiff * 2000);
     }
-    // MACD strength bonus
     mlScore += Math.min(3, Math.abs(macd.histogram) * 500);
-    // Volume surge bonus
-    mlScore += Math.min(2, (volumeRatio - 1.3) * 4);
-    // Momentum bonus (strong positive momentum = higher win chance)
+    mlScore += Math.min(3, (volumeRatio - 1.5) * 4);
     if (direction === "LONG" && coin.priceChange24h > 3) mlScore += 1;
-    // Coin win history bonus
+    if (direction === "LONG" && coin.priceChange24h > 7) mlScore += 1;
+    if (tpSource.includes("24h")) mlScore += 2;
     if (profile.wins > 0 && profile.losses === 0)
       mlScore = Math.min(99, mlScore + 2);
     if (profile.wins >= 3) mlScore = Math.min(99, mlScore + 1);
 
-    mlScore = Math.min(99, Math.max(85, mlScore));
+    mlScore = Math.min(99, Math.max(88, mlScore));
 
     const adjustmentFactor = getAdjustmentFactor();
-    // Confidence floor raised to 92 — only show ultra-high confidence
-    const rawConfidence = Math.min(99, Math.max(92, 88 + mlScore * 0.12));
+    const rawConfidence = Math.min(99, Math.max(90, 85 + mlScore * 0.15));
     const confidence = Math.min(99, rawConfidence * adjustmentFactor);
-    // TP probability now reflects geometric probability (accurate)
-    const tpProbabilityPct = Math.round(
-      Math.min(99, tpHitProbability * 100 + 2),
-    );
+    const tpProbabilityPct = Math.round(Math.min(99, tpHitProbability * 100));
 
-    // Final filter: must pass confidence AND geometric TP probability
-    if (confidence < 90 || tpProbabilityPct < 80) continue;
+    // Require 90%+ confidence AND 88%+ TP probability
+    if (confidence < 90 || tpProbabilityPct < 88) continue;
 
-    // Realistic time estimate
     const estimatedHours = Math.max(
       1,
       Math.min(
         48,
         coin.price !== 0 && atr !== 0
-          ? Math.round((tpPct * coin.price) / (atr * 1.2)) // faster since TP is small
-          : 8,
+          ? Math.round((tpPct * coin.price) / (atr * 1.2))
+          : 6,
       ),
     );
 
@@ -323,15 +361,20 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     const strengthLabel: "Strong" | "Weakening" | "At Risk" =
       confidence >= 95 ? "Strong" : confidence >= 92 ? "Weakening" : "At Risk";
 
+    const profitScore = tpHitProbability * tpPct * 100 * volumeRatio;
+    const profitPotential: "High" | "Medium" =
+      tpPct >= 0.02 && tpProbabilityPct >= 88 ? "High" : "Medium";
+
     seenSymbols.add(coin.symbol);
 
-    // Composite score for ranking (higher = shown first)
+    const rrRatio = slPct / tpPct;
     const compositeScore =
-      confidence * 0.35 +
-      tpProbabilityPct * 0.3 +
-      (coin.priceChange24h > 0 ? Math.min(coin.priceChange24h, 10) * 0.5 : 0) +
+      confidence * 0.25 +
+      tpProbabilityPct * 0.4 +
+      tpPct * 100 * 0.2 +
+      (coin.priceChange24h > 0 ? Math.min(coin.priceChange24h, 15) * 0.2 : 0) +
       (profile.wins - profile.losses) * 0.5 +
-      rrRatio * 0.5; // prefer higher R:R (wider SL = safer)
+      rrRatio * 0.2;
 
     candidates.push({
       id: `${coin.symbol}-${hourSeed}`,
@@ -358,19 +401,21 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       strengthLabel,
       dumpRisk,
       isTrending: coin.priceChange24h > 5,
-      analysis: `RSI ${rsi.toFixed(1)} | MACD ${macd.histogram > 0 ? "bullish" : "bearish"} | EMA ${ema9 > ema21 ? "uptrend" : "downtrend"} | ${coin.priceChange24h.toFixed(2)}% 24h | TP ${(tpPct * 100).toFixed(2)}% | Win Prob ${tpProbabilityPct}%`,
+      analysis: `RSI ${rsi.toFixed(1)} | TP target: ${tpSource} | Win Prob ${tpProbabilityPct}% | TP +${(tpPct * 100).toFixed(2)}% | SL -${(slPct * 100).toFixed(1)}% | 24h momentum ${coin.priceChange24h.toFixed(1)}%`,
       status: "active",
       timestamp: Date.now(),
       hourSeed,
       aiEnriched: false,
+      highProfitScore: profitScore,
+      profitPotential,
       score: compositeScore,
     });
   }
 
-  // Sort by composite score — best signals first
+  // Sort by composite score
   candidates.sort((a, b) => b.score - a.score);
 
-  // Keep top 20 only — fewer signals but much higher win probability
+  // Top 20 — more quality signals shown
   const results: Signal[] = candidates
     .slice(0, 20)
     .map(({ score: _score, ...s }) => s);

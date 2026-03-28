@@ -66,13 +66,14 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
   const isLong = signal.direction === "LONG";
   const tradeCtx = `Signal: ${signal.symbol} ${signal.direction} at ${signal.entryPrice}. TP: ${signal.takeProfit}, SL: ${signal.stopLoss}. Confidence: ${signal.confidence}%. ${signal.analysis}`;
 
-  // Live price calculations
   const livePrice = signal.currentPrice ?? signal.entryPrice;
   const priceChange =
     ((livePrice - signal.entryPrice) / signal.entryPrice) * 100;
   const livePriceIsGood = isLong
     ? livePrice >= signal.entryPrice
     : livePrice <= signal.entryPrice;
+
+  const isHighProfit = signal.profitPotential === "High";
 
   const handleTrack = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -135,11 +136,33 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
         transition={{ delay: index * 0.05 }}
         data-ocid={`signal.item.${index + 1}`}
         onClick={handleCardClick}
-        className="bg-white border border-gray-300 shadow-md rounded-2xl w-full cursor-pointer hover:shadow-lg transition-shadow flex flex-col"
+        className={`bg-white rounded-2xl w-full cursor-pointer hover:shadow-lg transition-shadow flex flex-col ${
+          isHighProfit
+            ? "border-2 border-[#C9A84C] shadow-[0_0_12px_#C9A84C30]"
+            : "border border-gray-300 shadow-md"
+        }`}
       >
+        {/* HIGH PROFIT badge — gold crown strip */}
+        {isHighProfit && (
+          <div
+            className="rounded-t-2xl px-4 py-1.5 flex items-center justify-between"
+            style={{
+              background:
+                "linear-gradient(90deg, #C9A84C 0%, #E8C97A 50%, #C9A84C 100%)",
+            }}
+          >
+            <span className="text-[#0A1628] font-bold text-xs tracking-wider uppercase flex items-center gap-1">
+              👑 HIGH PROFIT
+            </span>
+            <span className="text-[#0A1628] font-bold text-xs">
+              {signal.tpProbability}% Win Prob
+            </span>
+          </div>
+        )}
+
         {/* Card Header */}
         <div
-          className="rounded-t-2xl p-4"
+          className={`${isHighProfit ? "" : "rounded-t-2xl"} p-4`}
           style={{
             background: `linear-gradient(135deg, ${color}15 0%, transparent 100%)`,
           }}
@@ -174,7 +197,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
           </div>
         </div>
 
-        {/* Live Price Bar — display only, stopPropagation via span wrapper */}
+        {/* Live Price Bar */}
         <div className="mx-4 mb-1 mt-2">
           <span
             aria-label={`Live price ${formatPrice(livePrice)}`}
@@ -246,7 +269,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
         <div className="px-4 pb-2 flex flex-wrap gap-1.5">
           <span
             className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-              signal.confidence >= 90
+              signal.confidence >= 93
                 ? "bg-green-100 text-green-700"
                 : "bg-yellow-100 text-yellow-700"
             }`}
@@ -255,7 +278,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
           </span>
           <span
             className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-              signal.tpProbability >= 80
+              signal.tpProbability >= 92
                 ? "bg-green-100 text-green-700"
                 : "bg-yellow-100 text-yellow-700"
             }`}
@@ -305,6 +328,25 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
           </div>
           <div>
             <div className="flex justify-between text-[9px] text-gray-400 mb-0.5">
+              <span>Win Probability</span>
+              <span>{signal.tpProbability}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-gray-100">
+              <div
+                style={{
+                  width: `${signal.tpProbability}%`,
+                  background: isHighProfit
+                    ? "linear-gradient(90deg, #C9A84C, #E8C97A)"
+                    : undefined,
+                }}
+                className={`h-1.5 rounded-full transition-all ${
+                  isHighProfit ? "" : "bg-blue-500"
+                }`}
+              />
+            </div>
+          </div>
+          <div>
+            <div className="flex justify-between text-[9px] text-gray-400 mb-0.5">
               <span>Progress to TP</span>
               <span>
                 {isLong
@@ -334,7 +376,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
                 style={{
                   width: `${isLong ? Math.min(100, Math.max(0, ((livePrice - signal.entryPrice) / (signal.takeProfit - signal.entryPrice)) * 100)) : Math.min(100, Math.max(0, ((signal.entryPrice - livePrice) / (signal.entryPrice - signal.takeProfit)) * 100))}%`,
                 }}
-                className="h-1.5 rounded-full bg-blue-500 transition-all"
+                className="h-1.5 rounded-full bg-purple-500 transition-all"
               />
             </div>
           </div>
