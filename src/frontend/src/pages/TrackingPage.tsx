@@ -84,22 +84,31 @@ export default function TrackingPage() {
     }
   }, [storageKey]);
 
-  // Live price updates
+  // Live price updates — fetch real prices from CoinGecko every 60 seconds
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentPrices((prev) => {
-        const updated = { ...prev };
-        for (const trade of trades) {
-          const current = updated[trade.id] ?? trade.currentPrice;
-          const noise = (Math.random() - 0.49) * 0.002 * trade.entryPrice;
-          updated[trade.id] = Math.max(
-            trade.entryPrice * 0.85,
-            current + noise,
-          );
-        }
-        return updated;
-      });
-    }, 10000);
+    if (trades.length === 0) return;
+    const fetchPrices = async () => {
+      const coinIds = [...new Set(trades.map((t) => t.coinId))].filter(Boolean);
+      if (coinIds.length === 0) return;
+      try {
+        const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds.join(",")}&vs_currencies=usd`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) return;
+        const data = await res.json();
+        setCurrentPrices((prev) => {
+          const updated = { ...prev };
+          for (const trade of trades) {
+            const rp = data[trade.coinId]?.usd;
+            if (rp) updated[trade.id] = rp;
+          }
+          return updated;
+        });
+      } catch {
+        /* keep existing prices */
+      }
+    };
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 60000);
     return () => clearInterval(interval);
   }, [trades]);
 

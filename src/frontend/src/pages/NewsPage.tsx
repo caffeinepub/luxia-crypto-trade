@@ -15,89 +15,6 @@ interface NewsItem {
   imageUrl?: string;
 }
 
-const STATIC_NEWS: NewsItem[] = [
-  {
-    id: "n1",
-    title: "Bitcoin Breaks $72K as Institutional Demand Surges",
-    source: "CoinDesk",
-    url: "#",
-    publishedAt: new Date(Date.now() - 3600000).toISOString(),
-    category: "BTC",
-    summary:
-      "Bitcoin surged past $72,000 driven by ETF inflows exceeding $800M in a single day, with BlackRock and Fidelity leading institutional purchases.",
-  },
-  {
-    id: "n2",
-    title: "Ethereum L2 Ecosystem Reaches $50B TVL Milestone",
-    source: "The Block",
-    url: "#",
-    publishedAt: new Date(Date.now() - 7200000).toISOString(),
-    category: "ETH",
-    summary:
-      "Ethereum's Layer 2 scaling solutions collectively surpassed $50 billion in total value locked, with Arbitrum and Base leading growth.",
-  },
-  {
-    id: "n3",
-    title: "Solana DeFi Volume Hits All-Time High of $12B Weekly",
-    source: "Decrypt",
-    url: "#",
-    publishedAt: new Date(Date.now() - 10800000).toISOString(),
-    category: "SOL",
-    summary:
-      "Solana's decentralized exchange volume set a new record as meme coin trading and new protocol launches drove unprecedented activity.",
-  },
-  {
-    id: "n4",
-    title: "Fed Signals Rate Cuts: Crypto Markets Rally 8%",
-    source: "Reuters",
-    url: "#",
-    publishedAt: new Date(Date.now() - 14400000).toISOString(),
-    category: "Macro",
-    summary:
-      "Federal Reserve minutes revealed consensus for two rate cuts in 2026, sending risk assets higher with the total crypto market cap gaining $180B.",
-  },
-  {
-    id: "n5",
-    title: "XRP Legal Victory: SEC Case Formally Closed",
-    source: "CoinTelegraph",
-    url: "#",
-    publishedAt: new Date(Date.now() - 18000000).toISOString(),
-    category: "XRP",
-    summary:
-      "Ripple's legal battle with the SEC officially concluded with a favorable settlement, opening the door for XRP ETF applications from major asset managers.",
-  },
-  {
-    id: "n6",
-    title: "AI Tokens Lead Altcoin Season: RNDR Up 40% This Week",
-    source: "CryptoSlate",
-    url: "#",
-    publishedAt: new Date(Date.now() - 21600000).toISOString(),
-    category: "AI",
-    summary:
-      "Artificial intelligence-themed cryptocurrencies outperformed the broader market as enterprise AI adoption drives demand for decentralized compute networks.",
-  },
-  {
-    id: "n7",
-    title: "BNB Chain Launches Ultra-Fast Execution Layer",
-    source: "BNB Blog",
-    url: "#",
-    publishedAt: new Date(Date.now() - 25200000).toISOString(),
-    category: "BNB",
-    summary:
-      "Binance Smart Chain's new execution layer achieves sub-100ms finality, positioning it as a direct competitor to Solana for high-frequency trading apps.",
-  },
-  {
-    id: "n8",
-    title: "Global Crypto Regulations: 40 Countries Adopt MiCA Framework",
-    source: "CoinDesk",
-    url: "#",
-    publishedAt: new Date(Date.now() - 28800000).toISOString(),
-    category: "Regulation",
-    summary:
-      "A wave of nations outside the EU voluntarily adopted the MiCA regulatory framework, signaling growing global consensus on crypto oversight standards.",
-  },
-];
-
 function timeAgo(dateStr: string): string {
   const ms = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(ms / 60000);
@@ -111,100 +28,254 @@ function formatHHMM(date: Date): string {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-async function fetchCryptoPanic(): Promise<NewsItem[] | null> {
+// Source 1: CryptoCompare
+async function fetchCryptoCompare(): Promise<NewsItem[]> {
+  const res = await fetch(
+    "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=latest",
+    { signal: AbortSignal.timeout(8000) },
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  if (!data?.Data) return [];
+  return data.Data.slice(0, 15).map(
+    (item: {
+      id: string;
+      title: string;
+      source: string;
+      url: string;
+      published_on: number;
+      categories: string;
+      body: string;
+      imageurl?: string;
+    }) => ({
+      id: `cc-${item.id}`,
+      title: item.title,
+      source: item.source,
+      url: item.url,
+      publishedAt: new Date(item.published_on * 1000).toISOString(),
+      category: item.categories?.split("|")[0] || "Crypto",
+      summary: `${item.body?.slice(0, 180) ?? item.title}...`,
+      imageUrl: item.imageurl
+        ? `https://www.cryptocompare.com${item.imageurl}`
+        : undefined,
+    }),
+  );
+}
+
+// Source 2: CoinTelegraph RSS via rss2json
+async function fetchCoinTelegraph(): Promise<NewsItem[]> {
   try {
+    const rssUrl = encodeURIComponent("https://cointelegraph.com/rss");
     const res = await fetch(
-      "https://cryptopanic.com/api/v1/posts/?auth_token=anonymous&public=true&filter=rising",
+      `https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}&count=10`,
+      { signal: AbortSignal.timeout(8000) },
     );
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const data = await res.json();
-    if (!data?.results) return null;
-    return data.results.slice(0, 8).map(
+    if (!data?.items) return [];
+    return data.items.map(
       (item: {
-        id: number;
+        guid: string;
         title: string;
-        source?: { title?: string };
-        url: string;
-        published_at: string;
-        currencies?: { code: string }[];
+        link: string;
+        pubDate: string;
+        description: string;
+        thumbnail?: string;
+        enclosure?: { link?: string };
       }) => ({
-        id: String(item.id),
+        id: `ct-${item.guid}`,
         title: item.title,
-        source: item.source?.title || "CryptoPanic",
-        url: item.url,
-        publishedAt: item.published_at,
-        category: item.currencies?.[0]?.code || "Crypto",
-        summary: item.title,
+        source: "CoinTelegraph",
+        url: item.link,
+        publishedAt: new Date(item.pubDate).toISOString(),
+        category: detectCategory(item.title),
+        summary: `${stripHtml(item.description).slice(0, 180)}...`,
+        imageUrl: item.thumbnail || item.enclosure?.link || undefined,
       }),
     );
   } catch {
-    return null;
+    return [];
   }
 }
 
-async function fetchCryptoCompare(): Promise<NewsItem[] | null> {
+// Source 3: CoinDesk RSS via rss2json
+async function fetchCoinDesk(): Promise<NewsItem[]> {
   try {
+    const rssUrl = encodeURIComponent("https://feeds.feedburner.com/CoinDesk");
     const res = await fetch(
-      "https://min-api.cryptocompare.com/data/v2/news/?lang=EN",
+      `https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}&count=10`,
+      { signal: AbortSignal.timeout(8000) },
     );
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const data = await res.json();
-    if (!data?.Data) return null;
-    return data.Data.slice(0, 8).map(
+    if (!data?.items) return [];
+    return data.items.map(
       (item: {
-        id: string;
+        guid: string;
         title: string;
-        source: string;
-        url: string;
-        published_on: number;
-        categories: string;
-        body: string;
-        imageurl?: string;
+        link: string;
+        pubDate: string;
+        description: string;
+        thumbnail?: string;
+        enclosure?: { link?: string };
       }) => ({
-        id: String(item.id),
+        id: `cd-${item.guid}`,
         title: item.title,
-        source: item.source,
-        url: item.url,
-        publishedAt: new Date(item.published_on * 1000).toISOString(),
-        category: item.categories?.split("|")[0] || "Crypto",
-        summary: `${item.body?.slice(0, 160) ?? item.title}...`,
-        imageUrl: item.imageurl
-          ? `https://www.cryptocompare.com${item.imageurl}`
-          : undefined,
+        source: "CoinDesk",
+        url: item.link,
+        publishedAt: new Date(item.pubDate).toISOString(),
+        category: detectCategory(item.title),
+        summary: `${stripHtml(item.description).slice(0, 180)}...`,
+        imageUrl: item.thumbnail || item.enclosure?.link || undefined,
       }),
     );
   } catch {
-    return null;
+    return [];
   }
 }
+
+// Source 4: Decrypt RSS via rss2json
+async function fetchDecrypt(): Promise<NewsItem[]> {
+  try {
+    const rssUrl = encodeURIComponent("https://decrypt.co/feed");
+    const res = await fetch(
+      `https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}&count=8`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!data?.items) return [];
+    return data.items.map(
+      (item: {
+        guid: string;
+        title: string;
+        link: string;
+        pubDate: string;
+        description: string;
+        thumbnail?: string;
+      }) => ({
+        id: `dc-${item.guid}`,
+        title: item.title,
+        source: "Decrypt",
+        url: item.link,
+        publishedAt: new Date(item.pubDate).toISOString(),
+        category: detectCategory(item.title),
+        summary: `${stripHtml(item.description).slice(0, 180)}...`,
+        imageUrl: item.thumbnail || undefined,
+      }),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+function detectCategory(title: string): string {
+  const t = title.toUpperCase();
+  if (t.includes("BITCOIN") || t.includes(" BTC")) return "BTC";
+  if (t.includes("ETHEREUM") || t.includes(" ETH")) return "ETH";
+  if (t.includes("SOLANA") || t.includes(" SOL")) return "SOL";
+  if (t.includes("XRP") || t.includes("RIPPLE")) return "XRP";
+  if (t.includes("BNB") || t.includes("BINANCE")) return "BNB";
+  if (t.includes("REGULATE") || t.includes("SEC") || t.includes("LAW"))
+    return "Regulation";
+  if (t.includes("AI ") || t.includes(" AI ") || t.includes("ARTIFICIAL"))
+    return "AI";
+  if (t.includes("FED") || t.includes("MACRO") || t.includes("RATE"))
+    return "Macro";
+  if (t.includes("DeFi") || t.includes("DEFI")) return "DeFi";
+  if (t.includes("NFT")) return "NFT";
+  return "Crypto";
+}
+
+function deduplicateNews(items: NewsItem[]): NewsItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.title.toLowerCase().slice(0, 60);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+const categoryColors: Record<string, string> = {
+  BTC: "bg-orange-100 text-orange-700",
+  ETH: "bg-purple-100 text-purple-700",
+  SOL: "bg-violet-100 text-violet-700",
+  BNB: "bg-yellow-100 text-yellow-700",
+  XRP: "bg-blue-100 text-blue-700",
+  Macro: "bg-slate-100 text-slate-700",
+  Regulation: "bg-red-100 text-red-700",
+  AI: "bg-cyan-100 text-cyan-700",
+  DeFi: "bg-teal-100 text-teal-700",
+  NFT: "bg-pink-100 text-pink-700",
+  Crypto: "bg-gray-100 text-gray-700",
+};
 
 export default function NewsPage() {
-  const [news, setNews] = useState<NewsItem[]>(STATIC_NEWS);
+  const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [sourceCount, setSourceCount] = useState(0);
 
   async function loadNews() {
     setLoading(true);
     try {
-      let items = await fetchCryptoPanic();
-      if (!items) items = await fetchCryptoCompare();
-      if (items && items.length > 0) {
-        const titles = items.map((n) => n.title);
+      // Fetch from all 4 sources in parallel
+      const [cc, ct, cd, dc] = await Promise.allSettled([
+        fetchCryptoCompare(),
+        fetchCoinTelegraph(),
+        fetchCoinDesk(),
+        fetchDecrypt(),
+      ]);
+
+      const allItems: NewsItem[] = [
+        ...(cc.status === "fulfilled" ? cc.value : []),
+        ...(ct.status === "fulfilled" ? ct.value : []),
+        ...(cd.status === "fulfilled" ? cd.value : []),
+        ...(dc.status === "fulfilled" ? dc.value : []),
+      ];
+
+      const successCount = [cc, ct, cd, dc].filter(
+        (r) =>
+          r.status === "fulfilled" &&
+          (r as PromiseFulfilledResult<NewsItem[]>).value.length > 0,
+      ).length;
+      setSourceCount(successCount);
+
+      // Sort by newest first, deduplicate
+      allItems.sort(
+        (a, b) =>
+          new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+      );
+      const deduped = deduplicateNews(allItems);
+
+      if (deduped.length > 0) {
+        // Enrich top 12 with Gemini AI
+        const top = deduped.slice(0, 18);
         try {
-          const insights = await curateNews(titles);
-          const enriched = items.map((n, i) => ({
+          const insights = await curateNews(top.map((n) => n.title));
+          const enriched = top.map((n, i) => ({
             ...n,
             aiInsight: insights[i] || n.summary,
           }));
           setNews(enriched);
         } catch {
-          setNews(items);
+          setNews(top);
         }
-      } else {
-        setNews(STATIC_NEWS);
       }
     } catch {
-      setNews(STATIC_NEWS);
+      // keep previous
     } finally {
       setLoading(false);
       setLastUpdated(new Date());
@@ -214,20 +285,10 @@ export default function NewsPage() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
   useEffect(() => {
     loadNews();
-    const interval = setInterval(loadNews, 3600000);
+    // Auto-refresh every 30 minutes
+    const interval = setInterval(loadNews, 1800000);
     return () => clearInterval(interval);
   }, []);
-
-  const categoryColors: Record<string, string> = {
-    BTC: "bg-orange-100 text-orange-700",
-    ETH: "bg-purple-100 text-purple-700",
-    SOL: "bg-violet-100 text-violet-700",
-    BNB: "bg-yellow-100 text-yellow-700",
-    XRP: "bg-blue-100 text-blue-700",
-    Macro: "bg-slate-100 text-slate-700",
-    Regulation: "bg-red-100 text-red-700",
-    AI: "bg-cyan-100 text-cyan-700",
-  };
 
   return (
     <div className="min-h-screen bg-white py-10 px-6">
@@ -240,26 +301,46 @@ export default function NewsPage() {
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <div className="text-[#B8902A] text-xs tracking-widest uppercase font-semibold mb-2">
-                Live Feed
+                Multi-Source Live Feed
               </div>
               <h1 className="font-display text-4xl font-bold text-[#0A1628] uppercase tracking-tight">
                 Crypto News
               </h1>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {["CoinTelegraph", "CoinDesk", "CryptoCompare", "Decrypt"].map(
+                  (src) => (
+                    <span
+                      key={src}
+                      className="text-[9px] text-[#0A1628]/50 bg-[#0A1628]/4 px-2 py-0.5 rounded-full border border-[#0A1628]/8"
+                    >
+                      {src}
+                    </span>
+                  ),
+                )}
+              </div>
               <span className="text-[#0A1628]/40 text-xs">
-                Last updated: {formatHHMM(lastUpdated)}
+                Updated {formatHHMM(lastUpdated)}
               </span>
               <span className="flex items-center gap-1.5 text-xs text-[#16A34A] bg-[#16A34A]/10 px-3 py-1.5 rounded-full border border-[#16A34A]/20">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A] animate-pulse" />
-                Live · Hourly
+                {sourceCount} sources · 30min refresh
               </span>
+              <button
+                type="button"
+                onClick={loadNews}
+                disabled={loading}
+                className="text-xs px-3 py-1.5 rounded-lg bg-[#0A1628] text-white hover:bg-[#0A1628]/80 disabled:opacity-50 transition-all"
+              >
+                {loading ? "Loading..." : "Refresh"}
+              </button>
             </div>
           </div>
           <div className="mt-3 h-0.5 bg-gradient-to-r from-[#C9A84C] via-[#E8C97A] to-transparent" />
         </motion.div>
 
-        {loading ? (
+        {loading && news.length === 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div
@@ -278,38 +359,28 @@ export default function NewsPage() {
                 rel="noopener noreferrer"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.06 }}
-                data-ocid={`news.item.${i + 1}`}
+                transition={{ delay: i * 0.04 }}
                 className="luxury-card rounded-2xl overflow-hidden hover:shadow-lg transition-all duration-300 cursor-pointer group block"
               >
-                {/* Card image or gradient fallback */}
                 {article.imageUrl ? (
-                  <div className="h-32 overflow-hidden relative">
+                  <div className="h-36 overflow-hidden relative">
                     <img
                       src={article.imageUrl}
                       alt={article.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       onError={(e) => {
-                        const target = e.currentTarget as HTMLImageElement;
-                        target.style.display = "none";
-                        const parent = target.parentElement;
+                        const t = e.currentTarget as HTMLImageElement;
+                        t.style.display = "none";
+                        const parent = t.parentElement;
                         if (parent) {
-                          parent.classList.add(
-                            "bg-gradient-to-br",
-                            "from-[#0A1628]",
-                            "to-[#1a3558]",
-                            "flex",
-                            "items-center",
-                            "justify-center",
-                          );
-                          parent.innerHTML = '<span class="text-3xl">📰</span>';
+                          parent.innerHTML = `<div class="w-full h-full bg-gradient-to-br from-[#0A1628] to-[#1a3558] flex items-center justify-center text-3xl">📰</div>`;
                         }
                       }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
                   </div>
                 ) : (
-                  <div className="h-32 bg-gradient-to-br from-[#0A1628] to-[#1a3558] flex items-center justify-center text-3xl relative overflow-hidden">
+                  <div className="h-36 bg-gradient-to-br from-[#0A1628] to-[#1a3558] flex items-center justify-center text-3xl relative overflow-hidden">
                     <div
                       className="absolute inset-0"
                       style={{
@@ -317,19 +388,24 @@ export default function NewsPage() {
                           "radial-gradient(circle at 70% 30%, rgba(201,168,76,0.15) 0%, transparent 60%)",
                       }}
                     />
-                    <span className="relative z-10 text-3xl">📰</span>
+                    <span className="relative z-10">📰</span>
                   </div>
                 )}
-                <div className="p-5">
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <Badge
-                      className={`text-[10px] font-semibold uppercase tracking-wider ${
-                        categoryColors[article.category] ||
-                        "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {article.category}
-                    </Badge>
+                <div className="p-4">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Badge
+                        className={`text-[9px] font-semibold uppercase tracking-wider ${
+                          categoryColors[article.category] ||
+                          categoryColors.Crypto
+                        }`}
+                      >
+                        {article.category}
+                      </Badge>
+                      <span className="text-[9px] text-[#0A1628]/30 bg-[#0A1628]/4 px-1.5 py-0.5 rounded">
+                        {article.source}
+                      </span>
+                    </div>
                     <span className="text-[#0A1628]/40 text-[10px]">
                       {timeAgo(article.publishedAt)}
                     </span>
@@ -350,10 +426,7 @@ export default function NewsPage() {
                   <p className="text-[#0A1628]/55 text-[11px] leading-relaxed line-clamp-2">
                     {article.summary}
                   </p>
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-[#0A1628]/30 text-[10px]">
-                      {article.source}
-                    </span>
+                  <div className="mt-3 flex items-center justify-end">
                     <span className="text-[#B8902A] text-xs font-semibold">
                       Read more →
                     </span>

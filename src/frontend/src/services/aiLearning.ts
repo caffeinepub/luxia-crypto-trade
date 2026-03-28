@@ -1,3 +1,6 @@
+import { analyzeFailure } from "./aiSkillEngine";
+import { updateCoinProfile } from "./coinProfiler";
+
 const LEARNING_KEY = "luxia_ai_learning";
 
 export interface TradeOutcome {
@@ -8,6 +11,14 @@ export interface TradeOutcome {
   tpProbability: number;
   outcome: "hit" | "missed";
   timestamp: number;
+  // Optional extra context for better failure analysis
+  rsiValue?: number;
+  macdHistogram?: number;
+  volumeRatio?: number;
+  priceChange24h?: number;
+  atr?: number;
+  entryPrice?: number;
+  stopLoss?: number;
 }
 
 export interface LearningStats {
@@ -33,17 +44,30 @@ function loadData(): TradeOutcome[] {
 }
 
 function saveData(data: TradeOutcome[]): void {
-  // Keep only last 500 outcomes to save space
   const trimmed = data.slice(-500);
   localStorage.setItem(LEARNING_KEY, JSON.stringify(trimmed));
 }
 
 export function recordOutcome(outcome: TradeOutcome): void {
   const data = loadData();
-  // Remove duplicate if exists
   const filtered = data.filter((d) => d.id !== outcome.id);
   filtered.push(outcome);
   saveData(filtered);
+
+  // Per-coin profiling
+  const coinSymbol = outcome.symbol.replace("-USDT", "").replace("/USDT", "");
+  updateCoinProfile(
+    coinSymbol,
+    outcome.outcome === "hit" ? "win" : "loss",
+    outcome.outcome === "missed" ? "signal missed TP" : null,
+    outcome.priceChange24h ? Math.abs(outcome.priceChange24h) : undefined,
+    outcome.direction as "LONG" | "SHORT",
+  );
+
+  // Deep failure analysis for missed trades
+  if (outcome.outcome === "missed") {
+    analyzeFailure(outcome);
+  }
 }
 
 export function getAdjustmentFactor(): number {
@@ -52,8 +76,8 @@ export function getAdjustmentFactor(): number {
   const recent = data.slice(-20);
   const hitRate =
     recent.filter((d) => d.outcome === "hit").length / recent.length;
-  // If hit rate > 70%, small positive boost; if < 40%, reduce confidence
-  if (hitRate >= 0.7) return 1.05;
+  if (hitRate >= 0.75) return 1.06;
+  if (hitRate >= 0.6) return 1.02;
   if (hitRate >= 0.5) return 1.0;
   if (hitRate >= 0.4) return 0.97;
   return 0.93;
@@ -76,7 +100,7 @@ export function getLearningStats(): LearningStats {
   const learningScore = Math.min(100, data.length * 2 + hitRate * 50);
   const improvements: string[] = [];
   if (data.length >= 5) {
-    if (hitRate > 0.7)
+    if (hitRate > 0.75)
       improvements.push("High accuracy maintained — signals performing well");
     if (hitRate < 0.5 && data.length >= 10)
       improvements.push("Tightening confidence threshold to improve accuracy");

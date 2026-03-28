@@ -305,12 +305,35 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
           </div>
           <div>
             <div className="flex justify-between text-[9px] text-gray-400 mb-0.5">
-              <span>TP Probability</span>
-              <span>{signal.tpProbability}%</span>
+              <span>Progress to TP</span>
+              <span>
+                {isLong
+                  ? Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        ((livePrice - signal.entryPrice) /
+                          (signal.takeProfit - signal.entryPrice)) *
+                          100,
+                      ),
+                    ).toFixed(1)
+                  : Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        ((signal.entryPrice - livePrice) /
+                          (signal.entryPrice - signal.takeProfit)) *
+                          100,
+                      ),
+                    ).toFixed(1)}
+                %
+              </span>
             </div>
             <div className="h-1.5 rounded-full bg-gray-100">
               <div
-                style={{ width: `${signal.tpProbability}%` }}
+                style={{
+                  width: `${isLong ? Math.min(100, Math.max(0, ((livePrice - signal.entryPrice) / (signal.takeProfit - signal.entryPrice)) * 100)) : Math.min(100, Math.max(0, ((signal.entryPrice - livePrice) / (signal.entryPrice - signal.takeProfit)) * 100))}%`,
+                }}
                 className="h-1.5 rounded-full bg-blue-500 transition-all"
               />
             </div>

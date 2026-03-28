@@ -109,79 +109,92 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
     rescan();
   }, [rescan]);
 
-  // Live price monitor — check TP/SL every 30 seconds
+  // Live price monitor — fetch real prices from CoinGecko every 60 seconds
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSignals((prev) => {
-        const toRemove: string[] = [];
-        const updated = prev.map((signal) => {
-          // Simulate small price movement (noise)
-          const noise = 1 + (Math.random() - 0.48) * 0.008;
-          const updatedPrice =
-            (signal.currentPrice ?? signal.entryPrice) * noise;
-          const isLong = signal.direction === "LONG";
+    const interval = setInterval(async () => {
+      if (signals.length === 0) return;
 
-          // TP hit detection
-          if (
-            (isLong && updatedPrice >= signal.takeProfit) ||
-            (!isLong && updatedPrice <= signal.takeProfit)
-          ) {
-            recordOutcome({
-              id: signal.id,
-              symbol: signal.symbol,
-              direction: signal.direction,
-              confidence: signal.confidence,
-              tpProbability: signal.tpProbability,
-              outcome: "hit",
-              timestamp: Date.now(),
-            });
-            toast.success(
-              `🎯 ${signal.symbol} hit Take Profit! Finding new signal...`,
-            );
-            toRemove.push(signal.id);
-            // Schedule rescan after removal
-            if (rescanTimeoutRef.current)
-              clearTimeout(rescanTimeoutRef.current);
-            rescanTimeoutRef.current = setTimeout(() => rescan(), 3000);
-            return signal;
+      // Get unique coinIds from signals
+      const coinIds = [...new Set(signals.map((s) => s.coinId))].slice(0, 50);
+      if (coinIds.length === 0) return;
+
+      try {
+        const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds.join(",")}&vs_currencies=usd`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) return;
+        const priceData = await res.json();
+
+        setSignals((prev) => {
+          const toRemove: string[] = [];
+          const updated = prev.map((signal) => {
+            const realPrice = priceData[signal.coinId]?.usd;
+            if (!realPrice) return signal;
+
+            const isLong = signal.direction === "LONG";
+
+            // TP hit detection with real price
+            if (
+              (isLong && realPrice >= signal.takeProfit) ||
+              (!isLong && realPrice <= signal.takeProfit)
+            ) {
+              recordOutcome({
+                id: signal.id,
+                symbol: signal.symbol,
+                direction: signal.direction,
+                confidence: signal.confidence,
+                tpProbability: signal.tpProbability,
+                outcome: "hit",
+                timestamp: Date.now(),
+              });
+              toast.success(
+                `🎯 ${signal.symbol} hit Take Profit! Finding new signal...`,
+              );
+              toRemove.push(signal.id);
+              if (rescanTimeoutRef.current)
+                clearTimeout(rescanTimeoutRef.current);
+              rescanTimeoutRef.current = setTimeout(() => rescan(), 3000);
+              return signal;
+            }
+
+            // SL hit detection with real price
+            if (
+              (isLong && realPrice <= signal.stopLoss) ||
+              (!isLong && realPrice >= signal.stopLoss)
+            ) {
+              recordOutcome({
+                id: signal.id,
+                symbol: signal.symbol,
+                direction: signal.direction,
+                confidence: signal.confidence,
+                tpProbability: signal.tpProbability,
+                outcome: "missed",
+                timestamp: Date.now(),
+              });
+              toast.error(
+                `⚠️ ${signal.symbol} hit Stop Loss. AI learning from this...`,
+              );
+              toRemove.push(signal.id);
+              return signal;
+            }
+
+            return { ...signal, currentPrice: realPrice };
+          });
+
+          if (toRemove.length > 0) {
+            return updated.filter((s) => !toRemove.includes(s.id));
           }
-
-          // SL hit detection
-          if (
-            (isLong && updatedPrice <= signal.stopLoss) ||
-            (!isLong && updatedPrice >= signal.stopLoss)
-          ) {
-            recordOutcome({
-              id: signal.id,
-              symbol: signal.symbol,
-              direction: signal.direction,
-              confidence: signal.confidence,
-              tpProbability: signal.tpProbability,
-              outcome: "missed",
-              timestamp: Date.now(),
-            });
-            toast.error(
-              `⚠️ ${signal.symbol} hit Stop Loss. AI learning from this...`,
-            );
-            toRemove.push(signal.id);
-            return signal;
-          }
-
-          return { ...signal, currentPrice: updatedPrice };
+          return updated;
         });
-
-        if (toRemove.length > 0) {
-          return updated.filter((s) => !toRemove.includes(s.id));
-        }
-        return updated;
-      });
-    }, 30000);
+      } catch {
+        // Keep current prices if fetch fails
+      }
+    }, 60000);
 
     return () => {
       clearInterval(interval);
       if (rescanTimeoutRef.current) clearTimeout(rescanTimeoutRef.current);
     };
-  }, [rescan]);
+  }, [signals, rescan]);
 
   return (
     <ScanContext.Provider

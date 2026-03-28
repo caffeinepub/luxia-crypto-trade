@@ -3,6 +3,7 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  Cpu,
   Home,
   LogIn,
   LogOut,
@@ -23,6 +24,7 @@ import LoginModal from "./components/LoginModal";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { CreditProvider } from "./context/CreditContext";
 import { ScanProvider, useScan } from "./context/ScanContext";
+import AISkillsPage from "./pages/AISkillsPage";
 import ActiveSignalsPage from "./pages/ActiveSignalsPage";
 import AdminPage from "./pages/AdminPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -52,7 +54,8 @@ export type Page =
   | "news"
   | "dashboard"
   | "signals"
-  | "admin";
+  | "admin"
+  | "aiSkills";
 
 const TOP_TABS = [
   { id: "home" as Page, label: "HOME", Icon: Home },
@@ -63,6 +66,7 @@ const TOP_TABS = [
   { id: "search" as Page, label: "SEARCH", Icon: Search },
   { id: "tracking" as Page, label: "TRACKING", Icon: BookOpen },
   { id: "founder" as Page, label: "FOUNDER", Icon: User },
+  { id: "aiSkills" as Page, label: "AI SKILLS", Icon: Cpu },
 ];
 
 const SIDEBAR_TABS = [
@@ -73,6 +77,7 @@ const SIDEBAR_TABS = [
   { id: "tracking" as Page, label: "Tracking", Icon: TrendingUp },
   { id: "dashboard" as Page, label: "AI Dashboard", Icon: Settings },
   { id: "founder" as Page, label: "Founder", Icon: UserCircle },
+  { id: "aiSkills" as Page, label: "AI Skills", Icon: Cpu },
 ];
 
 function formatExpiry(expiryDate: string | null, role: string): string {
@@ -168,6 +173,8 @@ function AppInner() {
         return <SignalsPage />;
       case "admin":
         return isAdmin ? <AdminPage /> : <HomePage onNavigate={navigate} />;
+      case "aiSkills":
+        return <AISkillsPage />;
       default:
         return <HomePage onNavigate={navigate} />;
     }
