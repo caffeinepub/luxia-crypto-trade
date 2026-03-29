@@ -88,18 +88,6 @@ const SIDEBAR_TABS = [
   { id: "aiSkills" as Page, label: "AI Skills", Icon: Cpu },
 ];
 
-function formatExpiry(expiryDate: string | null, role: string): string {
-  if (role === "admin") return "Unlimited";
-  if (!expiryDate) return "Guest";
-  const d = new Date(expiryDate);
-  if (Number.isNaN(d.getTime())) return "Guest";
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 function statusColor(status: string): string {
   if (status === "Active") return "text-green-400";
   if (status === "Expired") return "text-red-400";
@@ -332,10 +320,10 @@ function AppInner() {
                 <div className="grid grid-cols-2 gap-2 mb-2">
                   <div className="bg-white/[0.06] rounded-lg p-2">
                     <div className="text-white/40 text-[9px] uppercase tracking-wider mb-0.5">
-                      Expiry
+                      Credits
                     </div>
-                    <div className="text-white/80 text-xs font-medium leading-tight">
-                      {formatExpiry(user.expiryDate, user.role)}
+                    <div className="text-[#C9A84C] text-xs font-bold leading-tight">
+                      {isAdmin ? "∞ Unlimited" : `${credits}`}
                     </div>
                   </div>
                   <div className="bg-white/[0.06] rounded-lg p-2">

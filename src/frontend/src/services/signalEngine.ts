@@ -143,15 +143,15 @@ function calcATR(
 }
 
 /**
- * LUXIA SIGNAL ENGINE v6 — UNLIMITED SIGNALS
+ * LUXIA SIGNAL ENGINE v7 — UNLIMITED HIGH-PROFIT SIGNALS
  *
  * Design philosophy:
  *  - Show ALL coins that pass quality + indicator checks
  *  - No hard cap on number of signals
- *  - Relaxed but meaningful filters so signals actually appear
+ *  - Super breakout path for coins with 3%+ momentum (ATR×7 projection)
  *  - TP auto-set to max reachable level (24h high or ATR projection)
  *  - SL wide (ATR × 3, min 3%) — survives normal volatility
- *  - Geometric win probability ≥ 75% (SL / (TP + SL))
+ *  - Geometric win probability ≥ 70% (SL / (TP + SL))
  *  - Per-coin AI learning still applied
  */
 export function generateSignals(coins: CoinData[]): Signal[] {
@@ -265,10 +265,27 @@ export function generateSignals(coins: CoinData[]): Signal[] {
         tpSource = "ATR momentum projection";
       }
       tpPct = Math.max(tpPct, 0.003);
-      // Super high profit: allow up to 500% TP for breakout coins
+
+      // ── SUPER BREAKOUT PATH ──────────────────────────────────────
+      // Coins with strong 24h momentum get an ATR×7 projection
+      // allowing 6%–200% TP targets for the Super High Profit section
+      const superBreakout =
+        coin.priceChange24h >= 3 &&
+        volumeRatio >= 1.3 &&
+        rsi >= 38 &&
+        rsi <= 62 &&
+        macd.histogram > 0;
+      if (superBreakout) {
+        const atrTarget = Math.max(atrPct * 7, 0.06); // minimum 6%
+        tpPct = Math.min(atrTarget, 2.0); // cap at 200%
+        tpSource = `Breakout projection (${coin.priceChange24h.toFixed(1)}% momentum, ATR×7)`;
+      }
+      // ────────────────────────────────────────────────────────────
+
+      // Super high profit: raise cap to 10x (1000%) for strong breakouts
       const superHighProfitCandidate =
         tpPct >= 0.05 && coin.priceChange24h >= 2 && volumeRatio >= 1.2;
-      tpPct = Math.min(tpPct, superHighProfitCandidate ? 5.0 : 0.15); // 500% for breakouts
+      tpPct = Math.min(tpPct, superHighProfitCandidate ? 10.0 : 0.2);
     } else {
       const low24h = coin.low24h ?? coin.price * 0.97;
       const distToLow = (coin.price - low24h) / coin.price;
@@ -284,12 +301,13 @@ export function generateSignals(coins: CoinData[]): Signal[] {
         tpSource = "ATR momentum projection";
       }
       tpPct = Math.max(tpPct, 0.003);
-      tpPct = Math.min(tpPct, 0.15);
+      tpPct = Math.min(tpPct, 0.2);
     }
 
-    // Super high profit flag
+    // Super high profit flag — catches both the 5%+ path and the breakout path
     const superHighProfit =
-      tpPct >= 0.05 && coin.priceChange24h >= 2 && volumeRatio >= 1.2;
+      (tpPct >= 0.05 && coin.priceChange24h >= 2 && volumeRatio >= 1.2) ||
+      (tpPct >= 0.08 && macd.histogram > 0);
 
     // ============================================================
     // SL: ATR-based, wide to survive volatility
@@ -337,6 +355,8 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     if (profile.wins >= 3) mlScore = Math.min(99, mlScore + 2);
     // Bonus for coins already in motion
     if (Math.abs(coin.priceChange24h) > 5) mlScore += 1;
+    // Bonus for breakout candidates
+    if (superHighProfit) mlScore = Math.min(99, mlScore + 2);
 
     mlScore = Math.min(99, Math.max(75, mlScore));
 

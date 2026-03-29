@@ -5,7 +5,7 @@ export default function SuperHighProfitPage() {
     <SignalPage
       type="superHighProfit"
       title="Super High Profit"
-      subtitle="100x potential — breakout coins with 30%+ TP targets"
+      subtitle="Breakout coins with 5%–200%+ TP targets — high momentum, strong volume"
       icon="🚀"
     />
   );

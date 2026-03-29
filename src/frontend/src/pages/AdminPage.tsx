@@ -47,19 +47,6 @@ function getPosts(): Post[] {
   }
 }
 
-function addDays(base: Date, days: number): string {
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
-}
-
-const DURATION_OPTIONS = [
-  { label: "1 Day", days: 1 },
-  { label: "1 Week", days: 7 },
-  { label: "1 Month", days: 30 },
-  { label: "1 Year", days: 365 },
-];
-
 export default function AdminPage() {
   const { isAdmin, updateUserCredits } = useAuth();
   const [tab, setTab] = useState<AdminTab>("home");
@@ -69,8 +56,6 @@ export default function AdminPage() {
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [newDuration, setNewDuration] = useState(30);
-  const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [newCredits, setNewCredits] = useState(100);
   const [editingCreditsId, setEditingCreditsId] = useState<string | null>(null);
   const [creditEditValue, setCreditEditValue] = useState(100);
@@ -147,13 +132,12 @@ export default function AdminPage() {
       return;
     }
     const uid = `LXU-${String(Date.now()).slice(-5)}`;
-    const expiry = addDays(new Date(), newDuration);
     const newUser: StoredUser = {
       uid,
       username: newUsername.trim(),
       password: newPassword.trim(),
       role: "premium",
-      expiryDate: expiry,
+      expiryDate: null,
       status: "Active",
       credits: newCredits,
     };
@@ -162,7 +146,6 @@ export default function AdminPage() {
     setUsers(updated);
     setNewUsername("");
     setNewPassword("");
-    setNewDuration(30);
     setNewCredits(100);
     setShowAddUser(false);
     toast.success(`User ${newUser.username} created (${uid})`);
@@ -173,25 +156,6 @@ export default function AdminPage() {
     localStorage.setItem("luxia_users", JSON.stringify(updated));
     setUsers(updated);
     toast.success("User deleted");
-  }
-
-  function extendUser(uid: string, days: number) {
-    const all = getUsers();
-    const idx = all.findIndex((u) => u.uid === uid);
-    if (idx === -1) return;
-    const base = all[idx].expiryDate
-      ? new Date(all[idx].expiryDate!)
-      : new Date();
-    if (base < new Date()) base.setTime(Date.now());
-    all[idx] = {
-      ...all[idx],
-      expiryDate: addDays(base, days),
-      status: "Active",
-    };
-    localStorage.setItem("luxia_users", JSON.stringify(all));
-    setUsers(all);
-    setEditingUserId(null);
-    toast.success("Subscription extended");
   }
 
   function handlePostImageChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -492,27 +456,6 @@ export default function AdminPage() {
                       />
                     </div>
                   </div>
-                  <div className="mb-4">
-                    <Label className="text-xs uppercase tracking-wider text-[#0A1628]/60 mb-2 block">
-                      Subscription Duration
-                    </Label>
-                    <div className="flex gap-2 flex-wrap">
-                      {DURATION_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.days}
-                          type="button"
-                          onClick={() => setNewDuration(opt.days)}
-                          className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
-                            newDuration === opt.days
-                              ? "bg-[#0A1628] text-white"
-                              : "bg-[#0A1628]/8 text-[#0A1628]/60 hover:bg-[#0A1628]/15"
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
                   <div className="mt-4">
                     <Label className="text-xs uppercase tracking-wider text-[#0A1628]/60 mb-1.5 block">
                       Starting Credits
@@ -548,7 +491,6 @@ export default function AdminPage() {
                       <th className="text-left py-3 pr-3">Username</th>
                       <th className="text-left py-3 pr-3">Role</th>
                       <th className="text-left py-3 pr-3">Status</th>
-                      <th className="text-left py-3 pr-3">Expiry</th>
                       <th className="text-left py-3 pr-3">Credits</th>
                       <th className="text-left py-3">Actions</th>
                     </tr>
@@ -586,9 +528,6 @@ export default function AdminPage() {
                           >
                             {u.status}
                           </span>
-                        </td>
-                        <td className="py-2.5 pr-3 text-[#0A1628]/50 text-xs">
-                          {u.expiryDate ?? "—"}
                         </td>
                         <td className="py-2.5 pr-3">
                           {u.role === "admin" ? (
@@ -646,20 +585,6 @@ export default function AdminPage() {
                             {u.role !== "admin" && (
                               <button
                                 type="button"
-                                data-ocid="admin.users.edit_button"
-                                onClick={() =>
-                                  setEditingUserId(
-                                    editingUserId === u.uid ? null : u.uid,
-                                  )
-                                }
-                                className="text-[#B8902A] text-xs hover:underline"
-                              >
-                                Extend
-                              </button>
-                            )}
-                            {u.role !== "admin" && (
-                              <button
-                                type="button"
                                 data-ocid="admin.users.delete_button"
                                 onClick={() => deleteUser(u.uid)}
                                 className="text-red-500 text-xs hover:underline"
@@ -668,20 +593,6 @@ export default function AdminPage() {
                               </button>
                             )}
                           </div>
-                          {editingUserId === u.uid && (
-                            <div className="flex gap-1 mt-1.5 flex-wrap">
-                              {DURATION_OPTIONS.map((opt) => (
-                                <button
-                                  key={opt.days}
-                                  type="button"
-                                  onClick={() => extendUser(u.uid, opt.days)}
-                                  className="text-[10px] px-2 py-0.5 rounded-full bg-[#C9A84C]/20 text-[#B8902A] hover:bg-[#C9A84C]/40 font-bold"
-                                >
-                                  +{opt.label}
-                                </button>
-                              ))}
-                            </div>
-                          )}
                         </td>
                       </tr>
                     ))}

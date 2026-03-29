@@ -43,7 +43,7 @@ const DEFAULT_USERS: StoredUser[] = [
     username: "demo",
     password: "demo123",
     role: "premium",
-    expiryDate: "2026-12-31",
+    expiryDate: null,
     status: "Active",
     credits: 100,
   },
@@ -113,17 +113,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  useEffect(() => {
-    if (user.expiryDate && user.role !== "admin") {
-      const expired = new Date(user.expiryDate) < new Date();
-      if (expired && user.status !== "Expired") {
-        const updated = { ...user, status: "Expired" as UserStatus };
-        setUser(updated);
-        localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
-      }
-    }
-  }, [user]);
-
   const login = (username: string, password: string): boolean => {
     const users = getUsers();
     const found = users.find(
@@ -131,10 +120,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
     if (!found) return false;
     const { password: _pw, ...userData } = found;
-    if (userData.expiryDate && userData.role !== "admin") {
-      const expired = new Date(userData.expiryDate) < new Date();
-      if (expired) userData.status = "Expired";
-    }
     if (userData.role === "premium" && userData.credits === undefined) {
       userData.credits = 100;
     }

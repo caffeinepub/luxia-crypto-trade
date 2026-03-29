@@ -6,9 +6,11 @@ import { motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
+import { useCredits } from "../context/CreditContext";
 
 export default function ProfilePage() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, isAdmin } = useAuth();
+  const { credits } = useCredits();
   const [form, setForm] = useState({
     fullName: (user as unknown as Record<string, string>).fullName || "",
     email: (user as unknown as Record<string, string>).email || "",
@@ -103,14 +105,10 @@ export default function ProfilePage() {
             </div>
             <div className="bg-[#0A1628]/4 rounded-xl p-3">
               <div className="text-[9px] text-[#0A1628]/40 uppercase tracking-wider mb-0.5">
-                Expiry
+                Credits
               </div>
-              <div className="text-[#0A1628] text-sm font-semibold">
-                {user.role === "admin"
-                  ? "Lifetime"
-                  : user.expiryDate
-                    ? new Date(user.expiryDate).toLocaleDateString()
-                    : "N/A"}
+              <div className="text-[#C9A84C] text-sm font-bold">
+                {isAdmin ? "∞ Unlimited" : `${credits} remaining`}
               </div>
             </div>
           </div>

@@ -5,7 +5,7 @@ export default function HighProfitPage() {
     <SignalPage
       type="highProfit"
       title="High Profit Trade"
-      subtitle="Top signals ranked by highest actual TP profit % with 85%+ hit probability"
+      subtitle="All signals ranked by highest TP profit % — higher gains at the top"
       icon="🏆"
     />
   );

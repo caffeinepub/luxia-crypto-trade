@@ -95,16 +95,21 @@ function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
       return signals.filter((s) => s.confidence >= 85);
     case "highProfit":
       return signals
-        .slice()
+        .filter((s) => {
+          const pp = (s.takeProfit - s.entryPrice) / (s.entryPrice || 1);
+          return pp >= 0.015; // at least 1.5% profit
+        })
         .sort(
           (a, b) =>
             (b.takeProfit - b.entryPrice) / (b.entryPrice || 1) -
             (a.takeProfit - a.entryPrice) / (a.entryPrice || 1),
-        )
-        .slice(0, 6);
+        );
     case "superHighProfit":
       return signals
-        .filter((s) => s.superHighProfit)
+        .filter((s) => {
+          const pp = (s.takeProfit - s.entryPrice) / (s.entryPrice || 1);
+          return s.superHighProfit || pp >= 0.05; // 5%+ profit OR flagged
+        })
         .sort((a, b) => profitPct(b) - profitPct(a));
     case "fast":
       return signals.filter(
