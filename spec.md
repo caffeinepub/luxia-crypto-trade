@@ -1,28 +1,32 @@
 # Luxia Crypto Trade
 
 ## Current State
-Tracked trades for non-guest users are stored under a shared localStorage key `luxia_tracked_trades` — not scoped by user UID. When User A logs in, tracks trades, then User B logs in on the same device, User B loads from the same key and sees User A's data.
-
-The backend canister already implements correct per-user isolation (`saveTrackedTrades(uid, data)` / `getTrackedTrades(uid)`). The bug is purely in the frontend localStorage key.
-
-Files involved:
-- `src/frontend/src/components/LiveSignalCard.tsx` — uses `luxia_tracked_trades` for all logged-in users
-- `src/frontend/src/pages/TrackingPage.tsx` — same shared key; loads, persists, and falls back to it
+- AI learning (aiLearning.ts), coin profiler (coinProfiler.ts), and AI skill engine (aiSkillEngine.ts) all use localStorage as primary storage. Backend is only a secondary fire-and-forget sync.
+- On a new device, these services start with empty localStorage — all AI knowledge is lost.
+- Users, tracked trades, and global stats are already backed by canister but AI-related data is not.
+- Login modal inputs have text-white class but browser autofill may override to make typed text invisible.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Nothing new
+- Canister endpoints for coinProfiles, aiSkillLog, paramHistory, rewriteLog
+- Load-from-backend on startup for coinProfiler, aiSkillEngine, aiLearning (blocking init before first use)
+- Signal engine improvements persisted permanently to canister
+- CSS fix for login input autofill: `-webkit-text-fill-color` and caret-color to ensure text always visible
 
 ### Modify
-- `LiveSignalCard.tsx`: Change tracked trades storage key from `luxia_tracked_trades` to `luxia_tracked_${user.uid}` for all non-guest users
-- `TrackingPage.tsx`: Same key change for TRACKED_KEY constant, load fallback, and persist helper
-- On logout (in AuthContext or on user switch), ensure the old user's data is not inadvertently read by the new session (already handled by scoped keys)
+- backend/main.mo: add stable vars and public functions for coinProfiles, aiSkillLog, paramHistory, rewriteLog
+- backendStorage.ts: add helpers for new canister endpoints
+- aiLearning.ts: load from canister first, fall back to localStorage
+- coinProfiler.ts: load from canister first, fall back to localStorage; sync on every save
+- aiSkillEngine.ts: load from canister first, fall back to localStorage; sync on every save
+- LoginModal.tsx: fix input visibility with explicit color styles and autofill overrides
 
 ### Remove
-- Nothing
+- Nothing removed
 
 ## Implementation Plan
-1. In `LiveSignalCard.tsx`: replace the hardcoded `"luxia_tracked_trades"` with `\`luxia_tracked_${user.uid}\``
-2. In `TrackingPage.tsx`: replace `TRACKED_KEY` constant with a dynamic key `\`luxia_tracked_${user.uid}\``, update all references including the backend load fallback
-3. Validate and build
+1. Update backend main.mo with new stable vars and CRUD functions for coinProfiles, skillLog, paramHistory, rewriteLog
+2. Update backendStorage.ts with new helper functions
+3. Update aiLearning.ts, coinProfiler.ts, aiSkillEngine.ts to load from canister on init
+4. Fix LoginModal.tsx input text visibility

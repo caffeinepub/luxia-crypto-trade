@@ -1,5 +1,8 @@
 import { getAdjustmentFactor } from "./aiLearning";
-import { getCoinProfile, isCoinBlocked } from "./coinProfiler";
+import {
+  getCoinProfile,
+  shouldSkipCoin as isCoinBlocked,
+} from "./coinProfiler";
 import type { CoinData } from "./marketData";
 
 export interface Signal {

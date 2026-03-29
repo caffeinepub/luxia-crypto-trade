@@ -18,6 +18,14 @@ actor {
   stable var globalHits   : Nat = 0;
   stable var globalMisses : Nat = 0;
 
+  // Coin profiles (per-coin AI signal parameters) — shared across all users
+  stable var coinProfilesData : Text = "";
+
+  // AI Skill Engine logs — shared
+  stable var aiSkillLogData : Text = "";
+  stable var aiParamHistoryData : Text = "";
+  stable var aiRewriteLogData : Text = "";
+
   // Helper: find value in assoc list
   func assocGet(entries : [(Text, Text)], key : Text) : Text {
     for ((k, v) in entries.vals()) {
@@ -32,7 +40,7 @@ actor {
     Array.append(filtered, [(key, value)])
   };
 
-  // ── Users ────────────────────────────────────────────────────────────────
+  // ── Users ──────────────────────────────────────────────────
 
   public func saveUsers(data : Text) : async () {
     usersData := data;
@@ -42,7 +50,7 @@ actor {
     usersData
   };
 
-  // ── Per-user tracked trades ───────────────────────────────────────────────
+  // ── Per-user tracked trades ──────────────────────────────────────
 
   public func saveTrackedTrades(uid : Text, data : Text) : async () {
     trackedTradesEntries := assocPut(trackedTradesEntries, uid, data);
@@ -52,7 +60,7 @@ actor {
     assocGet(trackedTradesEntries, uid)
   };
 
-  // ── Shared AI learning ───────────────────────────────────────────────────
+  // ── Shared AI learning ───────────────────────────────────────
 
   public func saveAILearning(data : Text) : async () {
     aiLearningData := data;
@@ -62,7 +70,43 @@ actor {
     aiLearningData
   };
 
-  // ── Global trade stats ───────────────────────────────────────────────────
+  // ── Coin profiles ─────────────────────────────────────────────
+
+  public func saveCoinProfiles(data : Text) : async () {
+    coinProfilesData := data;
+  };
+
+  public query func getCoinProfiles() : async Text {
+    coinProfilesData
+  };
+
+  // ── AI Skill logs ─────────────────────────────────────────────
+
+  public func saveAISkillLog(data : Text) : async () {
+    aiSkillLogData := data;
+  };
+
+  public query func getAISkillLog() : async Text {
+    aiSkillLogData
+  };
+
+  public func saveAIParamHistory(data : Text) : async () {
+    aiParamHistoryData := data;
+  };
+
+  public query func getAIParamHistory() : async Text {
+    aiParamHistoryData
+  };
+
+  public func saveAIRewriteLog(data : Text) : async () {
+    aiRewriteLogData := data;
+  };
+
+  public query func getAIRewriteLog() : async Text {
+    aiRewriteLogData
+  };
+
+  // ── Global trade stats ────────────────────────────────────────
 
   public func recordGlobalOutcome(outcome : Text) : async () {
     if (outcome == "hit") {
@@ -76,7 +120,7 @@ actor {
     "{\"hits\":" # Nat.toText(globalHits) # ",\"misses\":" # Nat.toText(globalMisses) # "}"
   };
 
-  // ── HTTP outcalls ────────────────────────────────────────────────────────
+  // ── HTTP outcalls ─────────────────────────────────────────────
 
   public query func transform(input : Outcall.TransformationInput) : async Outcall.TransformationOutput {
     Outcall.transform(input)

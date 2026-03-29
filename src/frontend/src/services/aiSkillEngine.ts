@@ -2,9 +2,18 @@
  * AI Skill Engine
  * Analyzes trade failures, generates human-readable reasons,
  * logs parameter changes, and tracks rewrite history.
+ * All data is stored permanently on ICP canister.
  */
 
 import type { TradeOutcome } from "./aiLearning";
+import {
+  loadAIParamHistoryFromBackend,
+  loadAIRewriteLogFromBackend,
+  loadAISkillLogFromBackend,
+  saveAIParamHistoryToBackend,
+  saveAIRewriteLogToBackend,
+  saveAISkillLogToBackend,
+} from "./backendStorage";
 
 const SKILL_LOG_KEY = "luxia_ai_skill_log";
 const PARAM_HISTORY_KEY = "luxia_param_history";
@@ -51,7 +60,9 @@ function loadSkillLog(): FailureAnalysis[] {
 }
 
 function saveSkillLog(data: FailureAnalysis[]): void {
-  localStorage.setItem(SKILL_LOG_KEY, JSON.stringify(data.slice(-200)));
+  const trimmed = data.slice(-200);
+  localStorage.setItem(SKILL_LOG_KEY, JSON.stringify(trimmed));
+  saveAISkillLogToBackend(JSON.stringify(trimmed));
 }
 
 function loadParamHistory(): ParamChange[] {
@@ -64,7 +75,9 @@ function loadParamHistory(): ParamChange[] {
 }
 
 function saveParamHistory(data: ParamChange[]): void {
-  localStorage.setItem(PARAM_HISTORY_KEY, JSON.stringify(data.slice(-100)));
+  const trimmed = data.slice(-100);
+  localStorage.setItem(PARAM_HISTORY_KEY, JSON.stringify(trimmed));
+  saveAIParamHistoryToBackend(JSON.stringify(trimmed));
 }
 
 function loadRewriteLog(): RewriteEntry[] {
@@ -77,8 +90,82 @@ function loadRewriteLog(): RewriteEntry[] {
 }
 
 function saveRewriteLog(data: RewriteEntry[]): void {
-  localStorage.setItem(REWRITE_LOG_KEY, JSON.stringify(data.slice(-50)));
+  const trimmed = data.slice(-50);
+  localStorage.setItem(REWRITE_LOG_KEY, JSON.stringify(trimmed));
+  saveAIRewriteLogToBackend(JSON.stringify(trimmed));
 }
+
+// Initialize all AI skill data from canister on startup
+let skillInitialized = false;
+let skillInitPromise: Promise<void> | null = null;
+
+export async function ensureAISkillInitialized(): Promise<void> {
+  if (skillInitialized) return;
+  if (skillInitPromise) return skillInitPromise;
+  skillInitPromise = (async () => {
+    try {
+      // Load all three stores in parallel
+      const [skillLogRaw, paramHistRaw, rewriteRaw] = await Promise.all([
+        loadAISkillLogFromBackend(),
+        loadAIParamHistoryFromBackend(),
+        loadAIRewriteLogFromBackend(),
+      ]);
+
+      if (skillLogRaw) {
+        const backendLog: FailureAnalysis[] = JSON.parse(skillLogRaw);
+        if (Array.isArray(backendLog) && backendLog.length > 0) {
+          const local = loadSkillLog();
+          const merged = [...local];
+          for (const item of backendLog) {
+            if (!merged.find((m) => m.id === item.id)) merged.push(item);
+          }
+          merged.sort((a, b) => a.timestamp - b.timestamp);
+          localStorage.setItem(
+            SKILL_LOG_KEY,
+            JSON.stringify(merged.slice(-200)),
+          );
+        }
+      }
+
+      if (paramHistRaw) {
+        const backendHist: ParamChange[] = JSON.parse(paramHistRaw);
+        if (Array.isArray(backendHist) && backendHist.length > 0) {
+          const local = loadParamHistory();
+          const merged = [...local];
+          for (const item of backendHist) {
+            if (!merged.find((m) => m.id === item.id)) merged.push(item);
+          }
+          merged.sort((a, b) => a.timestamp - b.timestamp);
+          localStorage.setItem(
+            PARAM_HISTORY_KEY,
+            JSON.stringify(merged.slice(-100)),
+          );
+        }
+      }
+
+      if (rewriteRaw) {
+        const backendRewrites: RewriteEntry[] = JSON.parse(rewriteRaw);
+        if (Array.isArray(backendRewrites) && backendRewrites.length > 0) {
+          const local = loadRewriteLog();
+          const merged = [...local];
+          for (const item of backendRewrites) {
+            if (!merged.find((m) => m.id === item.id)) merged.push(item);
+          }
+          merged.sort((a, b) => a.timestamp - b.timestamp);
+          localStorage.setItem(
+            REWRITE_LOG_KEY,
+            JSON.stringify(merged.slice(-50)),
+          );
+        }
+      }
+    } catch {}
+    skillInitialized = true;
+  })();
+  return skillInitPromise;
+}
+
+// Kick off immediately
+ensureAISkillInitialized();
 
 type FailureInput = TradeOutcome & {
   rsiValue?: number;

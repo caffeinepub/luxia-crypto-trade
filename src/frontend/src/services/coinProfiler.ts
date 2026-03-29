@@ -2,7 +2,13 @@
  * Per-coin behavior profiler.
  * Observes each coin's volatility, fluctuation range, and trade history
  * so signal engine can set dynamic SL/TP and avoid coins with repeated failures.
+ * Data is stored permanently on ICP canister and loaded on startup.
  */
+
+import {
+  loadCoinProfilesFromBackend,
+  saveCoinProfilesToBackend,
+} from "./backendStorage";
 
 const PROFILE_KEY = "luxia_coin_profiles";
 
@@ -48,21 +54,64 @@ function saveProfiles(profiles: Record<string, CoinProfile>): void {
     const pruned = Object.fromEntries(entries.slice(-200));
     localStorage.setItem(PROFILE_KEY, JSON.stringify(pruned));
   }
+  // Sync to backend canister permanently
+  saveCoinProfilesToBackend(JSON.stringify(profiles));
 }
+
+// Initialize from backend canister on startup
+let coinProfileInitialized = false;
+let coinProfileInitPromise: Promise<void> | null = null;
+
+export async function ensureCoinProfilesInitialized(): Promise<void> {
+  if (coinProfileInitialized) return;
+  if (coinProfileInitPromise) return coinProfileInitPromise;
+  coinProfileInitPromise = (async () => {
+    try {
+      const backendData = await loadCoinProfilesFromBackend();
+      if (!backendData) {
+        coinProfileInitialized = true;
+        return;
+      }
+      const backendProfiles: Record<string, CoinProfile> =
+        JSON.parse(backendData);
+      if (!backendProfiles || typeof backendProfiles !== "object") {
+        coinProfileInitialized = true;
+        return;
+      }
+      // Merge with local: backend wins on conflicts (more recent/complete)
+      const localProfiles = loadProfiles();
+      const merged = { ...localProfiles };
+      for (const [symbol, profile] of Object.entries(backendProfiles)) {
+        if (
+          !merged[symbol] ||
+          profile.lastUpdated > (merged[symbol]?.lastUpdated ?? 0)
+        ) {
+          merged[symbol] = profile;
+        }
+      }
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(merged));
+    } catch {}
+    coinProfileInitialized = true;
+  })();
+  return coinProfileInitPromise;
+}
+
+// Kick off init immediately
+ensureCoinProfilesInitialized();
 
 export function getCoinProfile(symbol: string): CoinProfile {
   const profiles = loadProfiles();
   return (
     profiles[symbol] ?? {
       symbol,
-      avgVolatility: 3.0, // default 3% daily move
-      slMultiplier: 2.0, // raised from 1.5 — wider SL from the start
+      avgVolatility: 3.0,
+      slMultiplier: 2.0,
       wins: 0,
       losses: 0,
       consecutiveLosses: 0,
       lastFailureReason: null,
-      minRsi: 32,
-      maxRsi: 60,
+      minRsi: 38,
+      maxRsi: 62,
       directionBias: 1.0,
       lastUpdated: Date.now(),
     }
@@ -71,122 +120,58 @@ export function getCoinProfile(symbol: string): CoinProfile {
 
 export function updateCoinProfile(
   symbol: string,
-  outcome: "win" | "loss",
-  reason: string | null,
-  observedVolatility?: number,
+  result: "win" | "loss",
+  failureReason: string | null = null,
+  volatility?: number,
   direction?: "LONG" | "SHORT",
 ): void {
   const profiles = loadProfiles();
-  const profile = getCoinProfile(symbol);
+  const existing = profiles[symbol] ?? getCoinProfile(symbol);
 
-  if (outcome === "win") {
-    profile.wins += 1;
-    profile.consecutiveLosses = 0;
-    // Reward: slightly relax RSI gates back toward neutral (but only by small step)
-    if (direction === "LONG") {
-      profile.minRsi = Math.max(30, profile.minRsi - 0.5);
-      profile.maxRsi = Math.min(62, profile.maxRsi + 0.5);
-    }
-    const adjustmentLog = JSON.parse(
-      localStorage.getItem("luxia_coin_adjustments") || "[]",
-    );
-    adjustmentLog.push({
-      symbol,
-      timestamp: Date.now(),
-      outcome: "win",
-      reason: "TP hit — relaxing gates slightly",
-      newMinRsi: profile.minRsi,
-      newMaxRsi: profile.maxRsi,
-      slMultiplier: profile.slMultiplier,
-      consecutiveLosses: 0,
-    });
-    if (adjustmentLog.length > 200)
-      adjustmentLog.splice(0, adjustmentLog.length - 200);
-    localStorage.setItem(
-      "luxia_coin_adjustments",
-      JSON.stringify(adjustmentLog),
-    );
+  const updated: CoinProfile = {
+    ...existing,
+    lastUpdated: Date.now(),
+  };
+
+  if (result === "win") {
+    updated.wins += 1;
+    updated.consecutiveLosses = 0;
+    // Slightly loosen RSI gates on wins (coin is behaving well)
+    if (updated.minRsi > 36) updated.minRsi -= 0.5;
+    if (updated.maxRsi < 64) updated.maxRsi += 0.5;
+    // Loosen SL a bit — was too tight concerns are resolved
+    if (updated.slMultiplier > 1.8) updated.slMultiplier -= 0.1;
+    // Adjust direction bias
+    if (direction === "LONG")
+      updated.directionBias = Math.min(1.5, updated.directionBias + 0.05);
+    if (direction === "SHORT")
+      updated.directionBias = Math.max(0.5, updated.directionBias - 0.05);
   } else {
-    profile.losses += 1;
-    profile.consecutiveLosses += 1;
-    profile.lastFailureReason = reason;
-
-    // Learn: tighten RSI gate for this coin based on failure pattern
-    if (reason?.includes("RSI too high") && direction === "LONG") {
-      profile.maxRsi = Math.max(50, profile.maxRsi - 2);
+    updated.losses += 1;
+    updated.consecutiveLosses += 1;
+    updated.lastFailureReason = failureReason;
+    // Tighten RSI gates on losses (only for this coin)
+    if (updated.consecutiveLosses >= 2) {
+      updated.minRsi = Math.min(updated.minRsi + 1, 48);
+      updated.maxRsi = Math.max(updated.maxRsi - 1, 56);
+      updated.slMultiplier = Math.min(updated.slMultiplier + 0.2, 4.0);
     }
-    if (reason?.includes("RSI too low") && direction === "SHORT") {
-      profile.minRsi = Math.min(68, profile.minRsi + 2);
-    }
-
-    // If coin has volatile failure: widen SL multiplier so fluctuation doesn't trigger it
-    if (reason?.includes("volatility") || reason?.includes("fluctuation")) {
-      profile.slMultiplier = Math.min(3.0, profile.slMultiplier + 0.3);
-    }
-
-    // Log the specific adjustment made for this coin
-    const adjustmentLog = JSON.parse(
-      localStorage.getItem("luxia_coin_adjustments") || "[]",
-    );
-    adjustmentLog.push({
-      symbol,
-      timestamp: Date.now(),
-      outcome,
-      reason: reason || "unknown",
-      newMinRsi: profile.minRsi,
-      newMaxRsi: profile.maxRsi,
-      slMultiplier: profile.slMultiplier,
-      consecutiveLosses: profile.consecutiveLosses,
-    });
-    // Keep only last 200 adjustments
-    if (adjustmentLog.length > 200)
-      adjustmentLog.splice(0, adjustmentLog.length - 200);
-    localStorage.setItem(
-      "luxia_coin_adjustments",
-      JSON.stringify(adjustmentLog),
-    );
   }
 
-  if (observedVolatility !== undefined && observedVolatility > 0) {
+  if (volatility !== undefined) {
     // Exponential moving average of observed volatility
-    profile.avgVolatility =
-      profile.avgVolatility * 0.8 + observedVolatility * 0.2;
+    updated.avgVolatility = updated.avgVolatility * 0.8 + volatility * 0.2;
   }
 
-  // Direction bias: if LONG keeps winning, lean LONG more
-  if (direction === "LONG") {
-    profile.directionBias =
-      outcome === "win"
-        ? Math.min(1.5, profile.directionBias + 0.05)
-        : Math.max(0.7, profile.directionBias - 0.05);
-  } else if (direction === "SHORT") {
-    profile.directionBias =
-      outcome === "win"
-        ? Math.max(0.7, profile.directionBias - 0.05)
-        : Math.min(1.3, profile.directionBias + 0.03);
-  }
-
-  profile.lastUpdated = Date.now();
-  profiles[symbol] = profile;
+  profiles[symbol] = updated;
   saveProfiles(profiles);
 }
 
-/** Returns true if this coin should be temporarily skipped (too many recent losses) */
-export function isCoinBlocked(symbol: string): boolean {
+export function shouldSkipCoin(symbol: string): boolean {
   const profile = getCoinProfile(symbol);
-  return profile.consecutiveLosses >= 3;
+  return profile.consecutiveLosses >= 2;
 }
 
 export function getAllProfiles(): Record<string, CoinProfile> {
   return loadProfiles();
-}
-
-export function resetCoinProfile(symbol: string): void {
-  const profiles = loadProfiles();
-  delete profiles[symbol];
-  saveProfiles(profiles);
-}
-
-export function resetAllProfiles(): void {
-  localStorage.removeItem(PROFILE_KEY);
 }

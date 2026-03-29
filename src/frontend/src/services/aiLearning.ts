@@ -54,27 +54,41 @@ function saveData(data: TradeOutcome[]): void {
   saveAILearningToBackend(JSON.stringify(trimmed));
 }
 
-// Initialize from backend on module load (non-blocking)
+// Initialize from backend on module load — load canister data and merge with local
 let initialized = false;
-async function ensureInitialized(): Promise<void> {
+let initPromise: Promise<void> | null = null;
+
+export async function ensureAILearningInitialized(): Promise<void> {
   if (initialized) return;
-  initialized = true;
-  try {
-    const backendData = await loadAILearningFromBackend();
-    if (!backendData) return;
-    const backendParsed: TradeOutcome[] = JSON.parse(backendData);
-    if (!Array.isArray(backendParsed) || backendParsed.length === 0) return;
-    const localData = loadData();
-    const merged = [...localData];
-    for (const item of backendParsed) {
-      if (!merged.find((m) => m.id === item.id)) merged.push(item);
-    }
-    merged.sort((a, b) => a.timestamp - b.timestamp);
-    const trimmed = merged.slice(-500);
-    localStorage.setItem(LEARNING_KEY, JSON.stringify(trimmed));
-  } catch {}
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    try {
+      const backendData = await loadAILearningFromBackend();
+      if (!backendData) {
+        initialized = true;
+        return;
+      }
+      const backendParsed: TradeOutcome[] = JSON.parse(backendData);
+      if (!Array.isArray(backendParsed) || backendParsed.length === 0) {
+        initialized = true;
+        return;
+      }
+      const localData = loadData();
+      const merged = [...localData];
+      for (const item of backendParsed) {
+        if (!merged.find((m) => m.id === item.id)) merged.push(item);
+      }
+      merged.sort((a, b) => a.timestamp - b.timestamp);
+      const trimmed = merged.slice(-500);
+      localStorage.setItem(LEARNING_KEY, JSON.stringify(trimmed));
+    } catch {}
+    initialized = true;
+  })();
+  return initPromise;
 }
-ensureInitialized();
+
+// Kick off init immediately (non-blocking)
+ensureAILearningInitialized();
 
 export function recordOutcome(outcome: TradeOutcome): void {
   const data = loadData();

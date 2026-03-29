@@ -83,6 +83,84 @@ export async function saveAILearningToBackend(data: string): Promise<void> {
   } catch {}
 }
 
+// Coin profiles
+export async function loadCoinProfilesFromBackend(): Promise<string> {
+  try {
+    const actor = await getActor();
+    if (!actor) return "";
+    const result = await actor.getCoinProfiles();
+    return result || "";
+  } catch {
+    return "";
+  }
+}
+
+export async function saveCoinProfilesToBackend(data: string): Promise<void> {
+  try {
+    const actor = await getActor();
+    if (!actor) return;
+    await actor.saveCoinProfiles(data);
+  } catch {}
+}
+
+// AI Skill logs
+export async function loadAISkillLogFromBackend(): Promise<string> {
+  try {
+    const actor = await getActor();
+    if (!actor) return "";
+    const result = await actor.getAISkillLog();
+    return result || "";
+  } catch {
+    return "";
+  }
+}
+
+export async function saveAISkillLogToBackend(data: string): Promise<void> {
+  try {
+    const actor = await getActor();
+    if (!actor) return;
+    await actor.saveAISkillLog(data);
+  } catch {}
+}
+
+export async function loadAIParamHistoryFromBackend(): Promise<string> {
+  try {
+    const actor = await getActor();
+    if (!actor) return "";
+    const result = await actor.getAIParamHistory();
+    return result || "";
+  } catch {
+    return "";
+  }
+}
+
+export async function saveAIParamHistoryToBackend(data: string): Promise<void> {
+  try {
+    const actor = await getActor();
+    if (!actor) return;
+    await actor.saveAIParamHistory(data);
+  } catch {}
+}
+
+export async function loadAIRewriteLogFromBackend(): Promise<string> {
+  try {
+    const actor = await getActor();
+    if (!actor) return "";
+    const result = await actor.getAIRewriteLog();
+    return result || "";
+  } catch {
+    return "";
+  }
+}
+
+export async function saveAIRewriteLogToBackend(data: string): Promise<void> {
+  try {
+    const actor = await getActor();
+    if (!actor) return;
+    await actor.saveAIRewriteLog(data);
+  } catch {}
+}
+
 // Global stats
 export async function recordGlobalOutcome(
   outcome: "hit" | "miss",

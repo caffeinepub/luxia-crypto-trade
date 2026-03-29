@@ -33,6 +33,14 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     }
   };
 
+  const inputStyle: React.CSSProperties = {
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.15)",
+    color: "#ffffff",
+    WebkitTextFillColor: "#ffffff",
+    caretColor: "#C9A84C",
+  };
+
   return (
     <AnimatePresence>
       {open && (
@@ -92,7 +100,8 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
                     placeholder="Enter username"
                     autoComplete="username"
                     required
-                    className="bg-white/8 border-white/15 text-white placeholder:text-white/30 focus:border-[#C9A84C]/50 focus:ring-0"
+                    style={inputStyle}
+                    className="placeholder:text-white/30 focus:border-[#C9A84C]/50 focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                   />
                 </div>
 
@@ -108,7 +117,8 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
                     placeholder="Enter password"
                     autoComplete="current-password"
                     required
-                    className="bg-white/8 border-white/15 text-white placeholder:text-white/30 focus:border-[#C9A84C]/50 focus:ring-0"
+                    style={inputStyle}
+                    className="placeholder:text-white/30 focus:border-[#C9A84C]/50 focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                   />
                 </div>
 
