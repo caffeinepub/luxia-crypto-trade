@@ -264,7 +264,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       tpPct = Math.max(tpPct, 0.003);
       // Super high profit: allow up to 500% TP for breakout coins
       const superHighProfitCandidate =
-        tpPct >= 0.3 && coin.priceChange24h >= 3 && volumeRatio >= 1.3;
+        tpPct >= 0.05 && coin.priceChange24h >= 2 && volumeRatio >= 1.2;
       tpPct = Math.min(tpPct, superHighProfitCandidate ? 5.0 : 0.15); // 500% for breakouts
     } else {
       const low24h = coin.low24h ?? coin.price * 0.97;
@@ -286,7 +286,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
 
     // Super high profit flag
     const superHighProfit =
-      tpPct >= 0.3 && coin.priceChange24h >= 3 && volumeRatio >= 1.3;
+      tpPct >= 0.05 && coin.priceChange24h >= 2 && volumeRatio >= 1.2;
 
     // ============================================================
     // SL: ATR-based, wide to survive volatility
@@ -409,7 +409,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       highProfitScore: profitScore,
       profitPotential,
       superHighProfit,
-      guaranteedHit: tpHitProbability >= 0.93 && Math.round(mlScore) >= 90,
+      guaranteedHit: tpHitProbability >= 0.83 && Math.round(mlScore) >= 85,
       score: compositeScore,
     });
   }
