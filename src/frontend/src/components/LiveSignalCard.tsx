@@ -59,7 +59,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
   const storageKey =
     user.role === "guest"
       ? "luxia_tracked_trades_guest"
-      : "luxia_tracked_trades";
+      : `luxia_tracked_${user.uid}`;
 
   const color = getCoinColor(signal.symbol);
   const coinName = signal.symbol.split("-")[0];

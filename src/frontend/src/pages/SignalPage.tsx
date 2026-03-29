@@ -44,7 +44,7 @@ const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
   {
     key: "guaranteedFirst",
     label: "Guaranteed Hits First",
-    desc: "GUARANTEED HIT signals at the top",
+    desc: "GUARANTEED HIT signals first, sorted by highest profit",
   },
 ];
 
@@ -71,12 +71,13 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
       return arr.sort(
         (a, b) => (b.tpProbability ?? 0) - (a.tpProbability ?? 0),
       );
-    case "guaranteedFirst":
-      return arr.sort((a, b) => {
-        if (a.guaranteedHit && !b.guaranteedHit) return -1;
-        if (!a.guaranteedHit && b.guaranteedHit) return 1;
-        return compositeScore(b) - compositeScore(a);
-      });
+    case "guaranteedFirst": {
+      const guaranteed = arr
+        .filter((s) => s.guaranteedHit)
+        .sort((a, b) => profitPct(b) - profitPct(a));
+      const rest = arr.filter((s) => !s.guaranteedHit);
+      return [...guaranteed, ...rest];
+    }
     default:
       return arr.sort((a, b) => compositeScore(b) - compositeScore(a));
   }

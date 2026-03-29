@@ -13,7 +13,6 @@ import {
 } from "../services/backendStorage";
 import type { Signal } from "../services/signalEngine";
 
-const TRACKED_KEY = "luxia_tracked_trades";
 const GUEST_TRACKED_KEY = "luxia_tracked_trades_guest";
 
 interface TrackedTrade extends Signal {
@@ -42,7 +41,8 @@ function formatElapsed(ms: number): string {
 
 export default function TrackingPage() {
   const { user } = useAuth();
-  const storageKey = user.role === "guest" ? GUEST_TRACKED_KEY : TRACKED_KEY;
+  const storageKey =
+    user.role === "guest" ? GUEST_TRACKED_KEY : `luxia_tracked_${user.uid}`;
   const [trades, setTrades] = useState<TrackedTrade[]>([]);
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>(
     {},
@@ -93,7 +93,7 @@ export default function TrackingPage() {
         // Try backend first
         raw = await loadTrackedTradesFromBackend(user.uid);
         if (!raw) {
-          raw = localStorage.getItem(TRACKED_KEY) || "";
+          raw = localStorage.getItem(`luxia_tracked_${user.uid}`) || "";
         }
       }
       if (raw) {
