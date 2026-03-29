@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   RefreshCw,
+  Rocket,
   Search,
   Settings,
   Shield,
@@ -41,6 +42,7 @@ import PostPage from "./pages/PostPage";
 import ProfilePage from "./pages/ProfilePage";
 import SearchPage from "./pages/SearchPage";
 import SignalsPage from "./pages/SignalsPage";
+import SuperHighProfitPage from "./pages/SuperHighProfitPage";
 import TrackingPage from "./pages/TrackingPage";
 import TradeNowPage from "./pages/TradeNowPage";
 
@@ -50,6 +52,7 @@ export type Page =
   | "tradeNow"
   | "active"
   | "highProfit"
+  | "superHighProfit"
   | "search"
   | "tracking"
   | "founder"
@@ -67,6 +70,7 @@ const TOP_TABS = [
   { id: "tradeNow" as Page, label: "TRADE NOW", Icon: TrendingUp },
   { id: "active" as Page, label: "ACTIVE SIGNALS", Icon: Activity },
   { id: "highProfit" as Page, label: "HIGH PROFIT", Icon: BarChart3 },
+  { id: "superHighProfit" as Page, label: "SUPER HIGH", Icon: Rocket },
   { id: "search" as Page, label: "SEARCH", Icon: Search },
   { id: "tracking" as Page, label: "TRACKING", Icon: BookOpen },
   { id: "founder" as Page, label: "FOUNDER", Icon: User },
@@ -160,6 +164,8 @@ function AppInner() {
         return <ActiveSignalsPage />;
       case "highProfit":
         return <HighProfitPage />;
+      case "superHighProfit":
+        return <SuperHighProfitPage />;
       case "search":
         return <SearchPage />;
       case "tracking":

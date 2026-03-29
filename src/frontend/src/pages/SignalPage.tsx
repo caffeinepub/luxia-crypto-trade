@@ -7,13 +7,18 @@ import { useScan } from "../context/ScanContext";
 import type { Signal } from "../services/signalEngine";
 
 interface Props {
-  type: "fast" | "tradeNow" | "active" | "highProfit";
+  type: "fast" | "tradeNow" | "active" | "highProfit" | "superHighProfit";
   title: string;
   subtitle: string;
   icon: string;
 }
 
-type SortKey = "composite" | "profit" | "confidence" | "tpProbability";
+type SortKey =
+  | "composite"
+  | "profit"
+  | "confidence"
+  | "tpProbability"
+  | "guaranteedFirst";
 
 const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
   {
@@ -35,6 +40,11 @@ const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
     key: "tpProbability",
     label: "Best TP Probability",
     desc: "Most likely to hit take-profit",
+  },
+  {
+    key: "guaranteedFirst",
+    label: "Guaranteed Hits First",
+    desc: "GUARANTEED HIT signals at the top",
   },
 ];
 
@@ -61,6 +71,12 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
       return arr.sort(
         (a, b) => (b.tpProbability ?? 0) - (a.tpProbability ?? 0),
       );
+    case "guaranteedFirst":
+      return arr.sort((a, b) => {
+        if (a.guaranteedHit && !b.guaranteedHit) return -1;
+        if (!a.guaranteedHit && b.guaranteedHit) return 1;
+        return compositeScore(b) - compositeScore(a);
+      });
     default:
       return arr.sort((a, b) => compositeScore(b) - compositeScore(a));
   }
@@ -85,6 +101,10 @@ function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
             (a.takeProfit - a.entryPrice) / (a.entryPrice || 1),
         )
         .slice(0, 6);
+    case "superHighProfit":
+      return signals
+        .filter((s) => s.superHighProfit)
+        .sort((a, b) => profitPct(b) - profitPct(a));
     case "fast":
       return signals.filter(
         (s) =>

@@ -64,6 +64,10 @@ export default function TrackingPage() {
   const [chatInput, setChatInput] = useState<Record<string, string>>({});
   const [chatSending, setChatSending] = useState<Record<string, boolean>>({});
   const msgIdRef = useRef(0);
+  const prevTpRef = useRef<Record<string, number>>({});
+  const [tpUpdated, setTpUpdated] = useState<
+    Record<string, "up" | "down" | null>
+  >({});
 
   const [learningStats, setLearningStats] = useState(getLearningStats);
 
@@ -132,6 +136,46 @@ export default function TrackingPage() {
           }
           return updated;
         });
+
+        // TP change detection — notify user when TP shifts
+        for (const trade of trades) {
+          if (trade.outcome) continue;
+          const prevTp = prevTpRef.current[trade.id];
+          const currentTp = trade.takeProfit;
+          if (
+            prevTp !== undefined &&
+            Math.abs(currentTp - prevTp) / (prevTp || 1) > 0.001
+          ) {
+            const newProfitPct = (
+              ((currentTp - trade.entryPrice) / trade.entryPrice) *
+              100
+            ).toFixed(2);
+            if (currentTp > prevTp) {
+              toast.success(
+                `📈 TP raised on ${trade.symbol}: now +${newProfitPct}% — more profit!`,
+                {
+                  duration: 5000,
+                  style: {
+                    background: "#C9A84C",
+                    color: "#0A1628",
+                    fontWeight: "bold",
+                  },
+                },
+              );
+              setTpUpdated((prev) => ({ ...prev, [trade.id]: "up" }));
+            } else {
+              toast.warning(
+                `⚠️ TP adjusted on ${trade.symbol}: pulling back to safer target`,
+                { duration: 5000 },
+              );
+              setTpUpdated((prev) => ({ ...prev, [trade.id]: "down" }));
+            }
+            setTimeout(() => {
+              setTpUpdated((prev) => ({ ...prev, [trade.id]: null }));
+            }, 3000);
+          }
+          prevTpRef.current[trade.id] = currentTp;
+        }
 
         setTrades((prevTrades) => {
           let changed = false;
@@ -494,6 +538,23 @@ export default function TrackingPage() {
                         <div className="text-white text-xs font-semibold">
                           ⚠️ Dump Warning — Safe Exit: {formatPrice(safeExit)}
                         </div>
+                      </div>
+                    )}
+                    {tpUpdated[trade.id] && (
+                      <div
+                        className="animate-pulse px-4 py-1.5 text-center text-xs font-extrabold tracking-widest uppercase"
+                        style={{
+                          background:
+                            tpUpdated[trade.id] === "up"
+                              ? "#C9A84C"
+                              : "#f97316",
+                          color:
+                            tpUpdated[trade.id] === "up" ? "#0A1628" : "white",
+                        }}
+                      >
+                        {tpUpdated[trade.id] === "up"
+                          ? "📈 TP UPDATED ↑ — More Profit!"
+                          : "⚠️ TP UPDATED ↓ — Safer Target"}
                       </div>
                     )}
 

@@ -148,7 +148,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
         }`}
       >
         {/* HIGH PROFIT badge — gold crown strip */}
-        {isHighProfit && (
+        {isHighProfit && !signal.guaranteedHit && !signal.superHighProfit && (
           <div
             className="rounded-t-2xl px-4 py-1.5 flex items-center justify-between"
             style={{
@@ -160,6 +160,44 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
               👑 HIGH PROFIT
             </span>
             <span className="text-[#0A1628] font-bold text-xs">
+              {signal.tpProbability}% Win Prob
+            </span>
+          </div>
+        )}
+
+        {/* GUARANTEED HIT badge — pulsing green/gold */}
+        {signal.guaranteedHit && (
+          <div
+            className="rounded-t-2xl px-4 py-2 flex items-center justify-between animate-pulse"
+            style={{
+              background:
+                "linear-gradient(90deg, #16a34a 0%, #22c55e 50%, #16a34a 100%)",
+              border: "2px solid #C9A84C",
+              borderBottom: "none",
+            }}
+          >
+            <span className="text-white font-extrabold text-xs tracking-widest uppercase flex items-center gap-1.5">
+              ✅ GUARANTEED HIT
+            </span>
+            <span className="text-white font-bold text-xs">
+              {signal.tpProbability}% Win Prob
+            </span>
+          </div>
+        )}
+
+        {/* 100x POTENTIAL badge — purple/violet for super high profit */}
+        {signal.superHighProfit && !signal.guaranteedHit && (
+          <div
+            className="rounded-t-2xl px-4 py-2 flex items-center justify-between"
+            style={{
+              background:
+                "linear-gradient(90deg, #7c3aed 0%, #a855f7 50%, #7c3aed 100%)",
+            }}
+          >
+            <span className="text-white font-extrabold text-xs tracking-widest uppercase flex items-center gap-1.5">
+              🚀 100x POTENTIAL
+            </span>
+            <span className="text-white font-bold text-xs">
               {signal.tpProbability}% Win Prob
             </span>
           </div>

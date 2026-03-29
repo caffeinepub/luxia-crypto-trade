@@ -34,6 +34,8 @@ export interface Signal {
   aiEnriched?: boolean;
   highProfitScore: number;
   profitPotential: "High" | "Medium";
+  superHighProfit: boolean;
+  guaranteedHit: boolean;
 }
 
 function seededRand(seed: number): () => number {
@@ -260,7 +262,10 @@ export function generateSignals(coins: CoinData[]): Signal[] {
         tpSource = "ATR momentum projection";
       }
       tpPct = Math.max(tpPct, 0.003);
-      tpPct = Math.min(tpPct, 0.15); // allow up to 15% TP
+      // Super high profit: allow up to 500% TP for breakout coins
+      const superHighProfitCandidate =
+        tpPct >= 0.3 && coin.priceChange24h >= 3 && volumeRatio >= 1.3;
+      tpPct = Math.min(tpPct, superHighProfitCandidate ? 5.0 : 0.15); // 500% for breakouts
     } else {
       const low24h = coin.low24h ?? coin.price * 0.97;
       const distToLow = (coin.price - low24h) / coin.price;
@@ -278,6 +283,10 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       tpPct = Math.max(tpPct, 0.003);
       tpPct = Math.min(tpPct, 0.15);
     }
+
+    // Super high profit flag
+    const superHighProfit =
+      tpPct >= 0.3 && coin.priceChange24h >= 3 && volumeRatio >= 1.3;
 
     // ============================================================
     // SL: ATR-based, wide to survive volatility
@@ -399,6 +408,8 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       aiEnriched: false,
       highProfitScore: profitScore,
       profitPotential,
+      superHighProfit,
+      guaranteedHit: tpHitProbability >= 0.93 && Math.round(mlScore) >= 90,
       score: compositeScore,
     });
   }

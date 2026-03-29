@@ -1,36 +1,36 @@
 # Luxia Crypto Trade
 
 ## Current State
-- All user data (tracked trades, user accounts, credits, AI learning) stored in browser localStorage only — not permanent, lost if browser data is cleared
-- AI learning data is per-browser, not shared across users
-- No global stats on total user successes/failures
-- Signal loading fails due to browser-side CoinGecko API rate limits and CORS issues
-- Backend has `getCoinGeckoPage` and `getBingXSymbols` but frontend fetches CoinGecko directly from browser
+- 4 signal pages: Fast Trade, Trade Now, Active Signals, High Profit
+- SignalPage.tsx handles filter/sort, HighProfitPage.tsx is standalone
+- Signal engine: TP capped at 15%, no superHighProfit field
+- No Super High Profit page, no GUARANTEED HIT badge, no TP change notifications
 
 ## Requested Changes (Diff)
 
 ### Add
-- Backend permanent storage for registered users (all accounts, passwords, credits, expiry)
-- Backend permanent per-user storage: tracked trades keyed by user UID
-- Backend permanent shared AI learning store (common across all users, grows over time)
-- Backend permanent global trade stats: total hits and misses across all users
-- Backend APIs: saveUsers/getUsers, saveTrackedTrades/getTrackedTrades, saveAILearning/getAILearning, recordGlobalOutcome/getGlobalStats
-- Frontend global stats display in AI Dashboard and Admin panel
+- Super High Profit page (type=superHighProfit): 100x/1000%+ coins, ATR extended TP up to 500%, snackbar tab SUPER HIGH with Rocket icon
+- GUARANTEED HIT badge on LiveSignalCard when tpProbability>=95 AND confidence>=93, pulsing gold/green
+- Guaranteed Hits First sort option on all signal pages
+- 100x POTENTIAL badge on cards with profitPct>=50%
+- TP Change Notification in TrackingPage: gold toast when TP rises, orange when pulls back; pulsing TP UPDATED badge on card
+- superHighProfit boolean field in Signal interface
 
 ### Modify
-- AuthContext: load/save user list from backend instead of localStorage
-- TrackingPage: load/save tracked trades from backend keyed by uid (falls back gracefully for guests)
-- aiLearning.ts: sync AI learning data to/from backend (shared store)
-- ScanContext: use backend `getCoinGeckoPage` HTTP outcall instead of direct browser fetch to fix rate-limit/CORS signal loading errors
+- App.tsx: add superHighProfit page, snackbar tab, route
+- SignalPage.tsx: add superHighProfit filter type, add Guaranteed Hits First sort
+- signalEngine.ts: add superHighProfit field, raise TP cap to 500% for breakout coins
+- HighProfitPage: filter tpPct>=5% sorted by profit desc
+- Fast Trade: estimatedHours<=6 AND tpProbability>=85
+- Trade Now: price within 1.5% of entry
 
 ### Remove
-- Direct CoinGecko fetches from browser in ScanContext (replaced by backend outcall)
+- Nothing
 
 ## Implementation Plan
-1. Expand Motoko backend with stable storage maps for: users (Text), trackedTrades (Map uid→Text), aiLearning (Text), globalStats (hits Nat, misses Nat)
-2. Add query/update methods for each storage area
-3. Update ScanContext to call `backend.getCoinGeckoPage()` instead of direct fetch — fixes signals not loading
-4. Update AuthContext to persist/load users via backend (with localStorage as fast cache)
-5. Update TrackingPage to save/load per-user trades via backend
-6. Update aiLearning.ts to sync outcomes to shared backend AI learning store
-7. Update AdminPage and DashboardPage to show global stats (total users' hits/misses)
+1. Update signalEngine.ts: add superHighProfit field, raise TP cap to 500% for breakout candidates
+2. Create SuperHighProfitPage.tsx using SignalPage type=superHighProfit
+3. Update SignalPage.tsx: add superHighProfit filter, Guaranteed Hits First sort
+4. Update App.tsx: add page type, snackbar tab, route
+5. Update LiveSignalCard.tsx: GUARANTEED HIT badge, 100x POTENTIAL badge
+6. Update TrackingPage.tsx: TP change detection, toast notifications, pulsing badge
