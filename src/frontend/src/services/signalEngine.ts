@@ -146,6 +146,12 @@ function calcATR(
   return sum / (candles.length - 1);
 }
 
+function formatEstimatedTime(hours: number): string {
+  if (hours < 1) return `${Math.round(hours * 60)}min`;
+  if (hours < 24) return `${hours.toFixed(1)}h`;
+  return `${Math.floor(hours / 24)}d ${Math.round(hours % 24)}h`;
+}
+
 /**
  * LUXIA SIGNAL ENGINE v9 — HIGH SURETY + MOMENTUM TP
  *
@@ -284,10 +290,24 @@ export function generateSignals(coins: CoinData[]): Signal[] {
 
     // ============================================================
     // ACCURATE TIME-TO-TP ESTIMATE
+    // Coins move in bursts, not uniformly across 24h.
+    // Higher momentum = more concentrated active hours per day.
     // ============================================================
-    const hourlyMomentumPct = Math.max(Math.abs(momentum) / 24, 0.05);
-    const rawHours = (tpPct * 100) / (hourlyMomentumPct * 0.6);
-    const estimatedHours = Math.max(1, Math.min(48, Math.round(rawHours)));
+    const activeHoursPerDay =
+      momentum >= 20
+        ? 10
+        : momentum >= 10
+          ? 8
+          : momentum >= 5
+            ? 6
+            : momentum >= 2
+              ? 5
+              : 4;
+    // Effective % per hour the coin travels toward TP
+    const effectiveHourlyRate = Math.max(momentum / activeHoursPerDay, 0.05);
+    const rawHoursCalc = (tpPct * 100) / effectiveHourlyRate;
+    // Add ~20% buffer: price doesn't go straight up
+    const estimatedHours = Math.max(0.5, Math.min(72, rawHoursCalc * 1.2));
 
     // ============================================================
     // ML SCORING
@@ -385,7 +405,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       strengthLabel,
       dumpRisk,
       isTrending: momentum > 5,
-      analysis: `RSI ${rsi.toFixed(1)} | ${tpSource} | Win Prob ${tpProbabilityPct}% | TP +${(tpPct * 100).toFixed(2)}% | SL -${(slPct * 100).toFixed(1)}% | Est ${estimatedHours}h | ${indicatorsAligned}/6 indicators | Surety ${suretyScore}`,
+      analysis: `RSI ${rsi.toFixed(1)} | ${tpSource} | Win Prob ${tpProbabilityPct}% | TP +${(tpPct * 100).toFixed(2)}% | SL -${(slPct * 100).toFixed(1)}% | Est ${formatEstimatedTime(estimatedHours)} | ${indicatorsAligned}/6 indicators | Surety ${suretyScore}`,
       status: "active",
       timestamp: Date.now(),
       hourSeed,

@@ -17,10 +17,18 @@ function formatPrice(p: number): string {
 }
 
 function formatCountdown(totalSeconds: number): string {
+  if (totalSeconds <= 0) return "0m 00s";
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
-  return `${h}h ${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  return `${m}m ${String(s).padStart(2, "0")}s`;
+}
+
+function formatMaxHold(hours: number): string {
+  if (hours < 1) return `${Math.round(hours * 60)}min`;
+  if (hours < 24) return `${hours.toFixed(1)}h`;
+  return `${Math.floor(hours / 24)}d ${Math.round(hours % 24)}h`;
 }
 
 function MiniChart({ signal }: { signal: Signal }) {
@@ -104,8 +112,8 @@ export default function TradeDetailModal({ signal, open, onClose }: Props) {
   useEffect(() => {
     if (!signal) return;
     setCurrentPrice(signal.currentPrice);
-    // Init countdown
-    const initialSecs = signal.estimatedHours * 3600;
+    // Init countdown from estimated hours
+    const initialSecs = Math.round(signal.estimatedHours * 3600);
     countdownRef.current = initialSecs;
     setCountdown(initialSecs);
   }, [signal]);
@@ -241,7 +249,7 @@ export default function TradeDetailModal({ signal, open, onClose }: Props) {
           {/* Countdown */}
           <div className="bg-[#0A1628] rounded-xl p-4">
             <div className="text-white/50 text-xs uppercase tracking-wider mb-1">
-              Time to TP
+              Time to TP (from entry)
             </div>
             <div className="text-[#C9A84C] font-mono text-2xl font-bold">
               {formatCountdown(countdown)}
@@ -296,7 +304,7 @@ export default function TradeDetailModal({ signal, open, onClose }: Props) {
                 Max Hold
               </div>
               <div className="font-bold text-blue-700 text-sm">
-                {Math.round(signal.estimatedHours * 1.5)}h
+                {formatMaxHold(signal.estimatedHours * 1.5)}
               </div>
             </div>
           </div>

@@ -385,7 +385,9 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
             Dump: {signal.dumpRisk}
           </span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
-            ~{signal.estimatedHours}h
+            {signal.estimatedHours < 1
+              ? `~${Math.round(signal.estimatedHours * 60)}min`
+              : `~${signal.estimatedHours.toFixed(1)}h`}
           </span>
 
           {/* Speed badge */}
