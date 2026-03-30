@@ -1,32 +1,28 @@
 # Luxia Crypto Trade
 
 ## Current State
-- AI learning (aiLearning.ts), coin profiler (coinProfiler.ts), and AI skill engine (aiSkillEngine.ts) all use localStorage as primary storage. Backend is only a secondary fire-and-forget sync.
-- On a new device, these services start with empty localStorage — all AI knowledge is lost.
-- Users, tracked trades, and global stats are already backed by canister but AI-related data is not.
-- Login modal inputs have text-white class but browser autofill may override to make typed text invisible.
+Full trading signal platform with signal pages, tracking, AI dashboard, admin panel, news, and founder pages. Navigation uses a scrollable snackbar + left sidebar.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Canister endpoints for coinProfiles, aiSkillLog, paramHistory, rewriteLog
-- Load-from-backend on startup for coinProfiler, aiSkillEngine, aiLearning (blocking init before first use)
-- Signal engine improvements persisted permanently to canister
-- CSS fix for login input autofill: `-webkit-text-fill-color` and caret-color to ensure text always visible
+- New **Instructions** page/tab accessible from sidebar navigation and snackbar
+- The page has three internal navigation tabs (lines/sections):
+  1. **How to Trade** — Step-by-step guide to using signals without loss (entry rules, SL rules, when to exit, risk management)
+  2. **Signal Thresholds** — What Confidence %, Winning Probability %, and Surety Rate % values indicate a high-probability winning trade (with visual thresholds/charts)
+  3. **Trading Rules** — Full ruleset: never trade below X confidence, always respect SL, how to use Guaranteed Hit badge, when to track vs skip, position sizing basics
 
 ### Modify
-- backend/main.mo: add stable vars and public functions for coinProfiles, aiSkillLog, paramHistory, rewriteLog
-- backendStorage.ts: add helpers for new canister endpoints
-- aiLearning.ts: load from canister first, fall back to localStorage
-- coinProfiler.ts: load from canister first, fall back to localStorage; sync on every save
-- aiSkillEngine.ts: load from canister first, fall back to localStorage; sync on every save
-- LoginModal.tsx: fix input visibility with explicit color styles and autofill overrides
+- Add Instructions tab to the sidebar navigation (icon: BookOpen or GraduationCap)
+- Add Instructions icon to the snackbar
 
 ### Remove
-- Nothing removed
+- Nothing
 
 ## Implementation Plan
-1. Update backend main.mo with new stable vars and CRUD functions for coinProfiles, skillLog, paramHistory, rewriteLog
-2. Update backendStorage.ts with new helper functions
-3. Update aiLearning.ts, coinProfiler.ts, aiSkillEngine.ts to load from canister on init
-4. Fix LoginModal.tsx input text visibility
+1. Create `InstructionsPage.tsx` with three internal tab navigation (tab bar with 3 labeled tabs)
+2. Tab 1 - How to Trade: numbered steps, icons, tips for trading signals without loss
+3. Tab 2 - Signal Thresholds: confidence/probability/surety breakdown with color-coded threshold cards showing green (safe), amber (caution), red (avoid) zones
+4. Tab 3 - Trading Rules: full ruleset cards with do/don't format
+5. Wire into sidebar nav and snackbar
+6. Match luxury design: navy/gold palette, glassmorphism cards, clean typography

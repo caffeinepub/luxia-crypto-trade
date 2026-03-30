@@ -4,6 +4,7 @@ import {
   BarChart3,
   BookOpen,
   Cpu,
+  FileText,
   Home,
   LogIn,
   LogOut,
@@ -37,6 +38,7 @@ import FastTradePage from "./pages/FastTradePage";
 import FounderPage from "./pages/FounderPage";
 import HighProfitPage from "./pages/HighProfitPage";
 import HomePage from "./pages/HomePage";
+import InstructionsPage from "./pages/InstructionsPage";
 import NewsPage from "./pages/NewsPage";
 import PostPage from "./pages/PostPage";
 import ProfilePage from "./pages/ProfilePage";
@@ -62,7 +64,8 @@ export type Page =
   | "dashboard"
   | "signals"
   | "admin"
-  | "aiSkills";
+  | "aiSkills"
+  | "instructions";
 
 const TOP_TABS = [
   { id: "home" as Page, label: "HOME", Icon: Home },
@@ -75,6 +78,7 @@ const TOP_TABS = [
   { id: "tracking" as Page, label: "TRACKING", Icon: BookOpen },
   { id: "founder" as Page, label: "FOUNDER", Icon: User },
   { id: "aiSkills" as Page, label: "AI SKILLS", Icon: Cpu },
+  { id: "instructions" as Page, label: "GUIDE", Icon: FileText },
 ];
 
 const SIDEBAR_TABS = [
@@ -86,6 +90,7 @@ const SIDEBAR_TABS = [
   { id: "dashboard" as Page, label: "AI Dashboard", Icon: Settings },
   { id: "founder" as Page, label: "Founder", Icon: UserCircle },
   { id: "aiSkills" as Page, label: "AI Skills", Icon: Cpu },
+  { id: "instructions" as Page, label: "Instructions", Icon: FileText },
 ];
 
 function statusColor(status: string): string {
@@ -174,6 +179,8 @@ function AppInner() {
         return isAdmin ? <AdminPage /> : <HomePage onNavigate={navigate} />;
       case "aiSkills":
         return <AISkillsPage />;
+      case "instructions":
+        return <InstructionsPage />;
       default:
         return <HomePage onNavigate={navigate} />;
     }
