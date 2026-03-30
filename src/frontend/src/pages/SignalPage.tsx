@@ -92,7 +92,7 @@ function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
           0.015,
       );
     case "active":
-      return signals.filter((s) => s.confidence >= 85);
+      return signals; // engine already enforces quality gates
     case "highProfit":
       return signals
         .filter((s) => {
