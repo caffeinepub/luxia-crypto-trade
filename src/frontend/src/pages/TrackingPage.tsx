@@ -82,64 +82,36 @@ export default function TrackingPage() {
     [storageKey, user.role, user.uid],
   );
 
-  // Load trades on mount: backend first, fallback to localStorage
-  useEffect(() => {
-    async function load() {
-      setLoadingTrades(true);
-      let raw = "";
-      if (user.role === "guest") {
-        raw = localStorage.getItem(GUEST_TRACKED_KEY) || "";
-      } else {
-        // Try backend first
-        raw = await loadTrackedTradesFromBackend(user.uid);
-        if (!raw) {
-          raw = localStorage.getItem(`luxia_tracked_${user.uid}`) || "";
-        }
-      }
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw) as TrackedTrade[];
-          const normalized = parsed.map((t) => ({
-            ...t,
-            trackedAt: t.trackedAt ?? t.timestamp,
-          }));
-          setTrades(normalized);
-          const prices: Record<string, number> = {};
-          for (const t of normalized) prices[t.id] = t.currentPrice;
-          setCurrentPrices(prices);
-        } catch {
-          setTrades([]);
-        }
-      }
-      setLoadingTrades(false);
-    }
-    load();
-  }, [user.uid, user.role]);
+  // Named fetch function — can be called immediately on load or from interval
+  const fetchAndResolvePrices = useCallback(
+    async (tradesArr: TrackedTrade[]) => {
+      const activeTrades = tradesArr.filter((t) => !t.outcome);
+      if (activeTrades.length === 0) return;
 
-  // Live price updates — fetch real prices from CoinGecko every 60 seconds
-  useEffect(() => {
-    if (trades.length === 0) return;
-    const fetchPrices = async () => {
-      const coinIds = [...new Set(trades.map((t) => t.coinId))].filter(Boolean);
+      const coinIds = [
+        ...new Set(activeTrades.map((t) => t.coinId).filter(Boolean)),
+      ];
       if (coinIds.length === 0) return;
+
       try {
         const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds.join(",")}&vs_currencies=usd`;
         const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
         if (!res.ok) return;
         const data = await res.json();
 
+        // Update current prices
         setCurrentPrices((prev) => {
           const updated = { ...prev };
-          for (const trade of trades) {
+          for (const trade of activeTrades) {
+            if (!trade.coinId) continue;
             const rp = data[trade.coinId]?.usd;
             if (rp) updated[trade.id] = rp;
           }
           return updated;
         });
 
-        // TP change detection — notify user when TP shifts
-        for (const trade of trades) {
-          if (trade.outcome) continue;
+        // TP change detection
+        for (const trade of activeTrades) {
           const prevTp = prevTpRef.current[trade.id];
           const currentTp = trade.takeProfit;
           if (
@@ -177,13 +149,48 @@ export default function TrackingPage() {
           prevTpRef.current[trade.id] = currentTp;
         }
 
+        // Auto-resolve: check if price already passed TP or SL while app was closed
         setTrades((prevTrades) => {
           let changed = false;
           const updated = prevTrades.map((trade) => {
             if (trade.outcome) return trade;
+            if (!trade.coinId) return trade;
             const rp = data[trade.coinId]?.usd;
             if (!rp) return trade;
             const isLong = trade.direction === "LONG";
+
+            // TP already passed?
+            const tpHit = isLong
+              ? rp >= trade.takeProfit
+              : rp <= trade.takeProfit;
+            if (tpHit) {
+              changed = true;
+              recordOutcome({
+                id: trade.id,
+                symbol: trade.symbol,
+                direction: trade.direction,
+                confidence: trade.confidence,
+                tpProbability: trade.tpProbability,
+                outcome: "hit",
+                timestamp: Date.now(),
+                entryPrice: trade.entryPrice,
+                stopLoss: trade.stopLoss,
+              });
+              toast.success(
+                `🎯 ${trade.symbol} already hit TP while you were away!`,
+                {
+                  duration: 6000,
+                  style: {
+                    background: "#C9A84C",
+                    color: "#0A1628",
+                    fontWeight: "bold",
+                  },
+                },
+              );
+              return { ...trade, outcome: "hit" as const };
+            }
+
+            // SL already hit?
             const slHit = isLong ? rp <= trade.stopLoss : rp >= trade.stopLoss;
             if (slHit) {
               changed = true;
@@ -199,13 +206,15 @@ export default function TrackingPage() {
                 stopLoss: trade.stopLoss,
               });
               toast.error(
-                `⚠️ ${trade.symbol} hit SL — marked as loss. AI analyzing...`,
-                { duration: 5000 },
+                `⚠️ ${trade.symbol} hit SL while you were away — marked as loss`,
+                { duration: 6000 },
               );
               return { ...trade, outcome: "missed" as const };
             }
+
             return trade;
           });
+
           if (changed) {
             persistTrades(updated);
             return updated;
@@ -215,11 +224,51 @@ export default function TrackingPage() {
       } catch {
         /* keep existing prices */
       }
-    };
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 60000);
+    },
+    [persistTrades],
+  );
+
+  // Load trades on mount: backend first, fallback to localStorage
+  useEffect(() => {
+    async function load() {
+      setLoadingTrades(true);
+      let raw = "";
+      if (user.role === "guest") {
+        raw = localStorage.getItem(GUEST_TRACKED_KEY) || "";
+      } else {
+        raw = await loadTrackedTradesFromBackend(user.uid);
+        if (!raw) {
+          raw = localStorage.getItem(`luxia_tracked_${user.uid}`) || "";
+        }
+      }
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as TrackedTrade[];
+          const normalized = parsed.map((t) => ({
+            ...t,
+            trackedAt: t.trackedAt ?? t.timestamp,
+          }));
+          setTrades(normalized);
+          const prices: Record<string, number> = {};
+          for (const t of normalized) prices[t.id] = t.currentPrice;
+          setCurrentPrices(prices);
+          // Fix 1: Immediately fetch live prices — don't wait 60 seconds
+          fetchAndResolvePrices(normalized);
+        } catch {
+          setTrades([]);
+        }
+      }
+      setLoadingTrades(false);
+    }
+    load();
+  }, [user.uid, user.role, fetchAndResolvePrices]);
+
+  // Live price updates every 60 seconds (interval only — initial call is in load())
+  useEffect(() => {
+    if (trades.length === 0) return;
+    const interval = setInterval(() => fetchAndResolvePrices(trades), 60000);
     return () => clearInterval(interval);
-  }, [trades, persistTrades]);
+  }, [trades, fetchAndResolvePrices]);
 
   const runAiMonitoring = useCallback(
     async (tradesArr: TrackedTrade[], prices: Record<string, number>) => {
@@ -283,6 +332,14 @@ export default function TrackingPage() {
     setTrades(updated);
     persistTrades(updated);
     toast.success("Trade removed");
+  };
+
+  // Fix 4: Clear all resolved trades
+  const clearResolvedTrades = () => {
+    const updated = trades.filter((t) => !t.outcome);
+    setTrades(updated);
+    persistTrades(updated);
+    toast.success("Resolved trades cleared");
   };
 
   const markOutcome = (id: string, outcome: "hit" | "missed") => {
@@ -366,6 +423,8 @@ export default function TrackingPage() {
     setChatSending((prev) => ({ ...prev, [trade.id]: false }));
   };
 
+  const hasResolvedTrades = trades.some((t) => t.outcome);
+
   return (
     <div className="min-h-screen bg-white py-6 px-4">
       <div className="max-w-7xl mx-auto">
@@ -374,12 +433,28 @@ export default function TrackingPage() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-6"
         >
-          <h1 className="text-[#0A1628] font-bold text-2xl mb-1">
-            📊 Tracking
-          </h1>
-          <p className="text-[#0A1628]/50 text-sm">
-            Your manually tracked trades — AI monitored live
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-[#0A1628] font-bold text-2xl mb-1">
+                📊 Tracking
+              </h1>
+              <p className="text-[#0A1628]/50 text-sm">
+                Your manually tracked trades — AI monitored live
+              </p>
+            </div>
+            {/* Fix 4: Clear Resolved Trades button */}
+            {hasResolvedTrades && (
+              <Button
+                variant="outline"
+                size="sm"
+                data-ocid="tracking.clear_resolved_button"
+                className="text-xs border-gray-300 text-gray-500 hover:text-red-500 hover:border-red-300"
+                onClick={clearResolvedTrades}
+              >
+                🗑 Clear Resolved
+              </Button>
+            )}
+          </div>
         </motion.div>
 
         {/* AI Learning Stats Bar */}
@@ -482,7 +557,6 @@ export default function TrackingPage() {
                   ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
                   : ((trade.entryPrice - currentPrice) / trade.entryPrice) *
                     100;
-                // Static TP profit (entry → TP)
                 const tpProfitPct = isLong
                   ? ((trade.takeProfit - trade.entryPrice) / trade.entryPrice) *
                     100
@@ -501,6 +575,8 @@ export default function TrackingPage() {
                 const nearTp = progressPct >= 70 && !tpReached;
                 const elapsed =
                   Date.now() - (trade.trackedAt ?? trade.timestamp);
+                // Fix 3: Stale trade detection (open 24h+)
+                const isStale = elapsed > 86400000 && !trade.outcome;
                 const aiText = aiMonitoring[trade.id];
                 const isAiLoading = aiLoading[trade.id];
                 const lastMonitorTime = aiMonitorTime[trade.id];
@@ -519,22 +595,37 @@ export default function TrackingPage() {
                     tabIndex={0}
                     className="bg-white border border-gray-300 shadow-md rounded-2xl w-full cursor-pointer hover:shadow-lg transition-shadow"
                   >
+                    {/* Fix 3: Stale trade badge */}
+                    {isStale && (
+                      <div className="border-b border-amber-200 bg-amber-50 rounded-t-2xl px-4 py-1.5 flex items-center gap-1.5">
+                        <span className="text-amber-500 text-xs">⏰</span>
+                        <span className="text-amber-600 text-[11px] font-medium">
+                          Trade open 24h+ — check manually
+                        </span>
+                      </div>
+                    )}
                     {tpReached && !trade.outcome && (
-                      <div className="bg-green-500 rounded-t-2xl p-3 text-center animate-pulse">
+                      <div
+                        className={`${isStale ? "" : "rounded-t-2xl"} bg-green-500 p-3 text-center animate-pulse`}
+                      >
                         <div className="text-white font-bold text-sm">
                           🎯 PROFIT TAKEN +{profitPct.toFixed(1)}% Achieved
                         </div>
                       </div>
                     )}
                     {earlyDumpRisk && !dumpWarning && (
-                      <div className="bg-orange-400 rounded-t-2xl p-2 text-center">
+                      <div
+                        className={`${isStale ? "" : "rounded-t-2xl"} bg-orange-400 p-2 text-center`}
+                      >
                         <div className="text-white text-xs font-semibold">
                           ⚠️ Caution — Momentum Weakening. Monitor closely.
                         </div>
                       </div>
                     )}
                     {dumpWarning && !tpReached && (
-                      <div className="bg-red-500 rounded-t-2xl p-2 text-center">
+                      <div
+                        className={`${isStale ? "" : "rounded-t-2xl"} bg-red-500 p-2 text-center`}
+                      >
                         <div className="text-white text-xs font-semibold">
                           ⚠️ Dump Warning — Safe Exit: {formatPrice(safeExit)}
                         </div>
