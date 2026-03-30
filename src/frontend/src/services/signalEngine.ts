@@ -39,6 +39,10 @@ export interface Signal {
   profitPotential: "High" | "Medium";
   superHighProfit: boolean;
   guaranteedHit: boolean;
+  /** Surety score 0-100: combined TP probability + confidence + indicator alignment */
+  suretyScore: number;
+  /** Number of indicators aligned (max 6) */
+  indicatorsAligned: number;
 }
 
 function seededRand(seed: number): () => number {
@@ -143,14 +147,15 @@ function calcATR(
 }
 
 /**
- * LUXIA SIGNAL ENGINE v8 — MOMENTUM-DRIVEN TP FOR FAST HITS & HIGH PROFIT
+ * LUXIA SIGNAL ENGINE v9 — HIGH SURETY + MOMENTUM TP
  *
- * Core fix: TP is now based on current momentum velocity (how fast the coin
- * is moving RIGHT NOW), not where it peaked 24h ago. This means:
- *  - Coins already in motion hit TP quickly (fast trades)
- *  - TP is set at a realistic ATR multiple the current momentum supports
- *  - estimatedHours is calculated from actual price velocity
- *  - Super breakout coins (10%+ 24h move) get large ATR × projection
+ * Core principles:
+ *  1. Every signal must have a wide SL so volatility can't knock it out
+ *  2. TP is based on proven 24h resistance OR current momentum velocity
+ *  3. A "suretyScore" is calculated per signal: combination of geometric
+ *     win probability, indicator alignment, confidence, and momentum quality
+ *  4. Only signals with 72%+ geometric win probability pass through
+ *  5. GUARANTEED HIT: 80%+ TP hit prob + 88%+ confidence + MACD + EMA confirmed
  */
 export function generateSignals(coins: CoinData[]): Signal[] {
   const hourSeed = Math.floor(Date.now() / 3600000);
@@ -161,21 +166,20 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     if (seenSymbols.has(coin.symbol)) continue;
 
     // Minimum quality gates
-    if (coin.volume24h < 1_000_000) continue; // $1M+ daily volume
-    if (coin.marketCap !== undefined && coin.marketCap < 10_000_000) continue; // $10M+ market cap
+    if (coin.volume24h < 2_000_000) continue; // $2M+ daily volume (tightened)
+    if (coin.marketCap !== undefined && coin.marketCap < 15_000_000) continue; // $15M+ market cap
 
     // Skip extreme dump coins
-    if (coin.priceChange24h < -30) continue;
+    if (coin.priceChange24h < -20) continue;
     // Skip already-overbought extreme pumpers (likely to reverse)
     if (coin.priceChange24h > 80) continue;
 
     // REQUIRE positive momentum for LONG — coin must already be moving up today
-    // This is the single most impactful filter for hitting TP
-    if (coin.priceChange24h < 0.3) continue;
+    if (coin.priceChange24h < 0.5) continue; // tightened to 0.5% minimum
 
     if (isCoinBlocked(coin.symbol)) continue;
     const profile = getCoinProfile(coin.symbol);
-    if (profile.consecutiveLosses >= 3) continue;
+    if (profile.consecutiveLosses >= 2) continue; // skip after 2 losses (was 3)
 
     const symbolCode = coin.symbol
       .split("")
@@ -198,107 +202,90 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     const trend: "bullish" | "bearish" = ema9 > ema21 ? "bullish" : "bearish";
 
     // ============================================================
-    // INDICATOR GATES — momentum-focused
+    // INDICATOR GATES — 6 indicators, need at least 4 aligned
     // ============================================================
-    const rsiLongOk = rsi >= 35 && rsi <= 72; // not overbought
+    const rsiLongOk = rsi >= 38 && rsi <= 70; // healthy zone
     const emaLongOk = ema9 > ema21 * 0.997; // EMA crossover or near
     const macdLongOk = macd.histogram > 0; // positive momentum
-    const momentumOk = coin.priceChange24h >= 0.3; // already rising today
-    const notTopHeavy = rsi < 75; // not at extreme overbought
+    const momentumOk = coin.priceChange24h >= 0.5; // already rising
+    const notTopHeavy = rsi < 72; // not overbought
+    const volumeSurge = volumeRatio >= 1.15; // volume confirmation
 
-    const longScore =
+    const indicatorsAligned =
       (rsiLongOk ? 1 : 0) +
       (emaLongOk ? 1 : 0) +
       (macdLongOk ? 1 : 0) +
       (momentumOk ? 1 : 0) +
-      (notTopHeavy ? 1 : 0);
+      (notTopHeavy ? 1 : 0) +
+      (volumeSurge ? 1 : 0);
 
-    if (longScore < 4) continue; // need 4/5 indicators aligned
+    if (indicatorsAligned < 4) continue; // need 4/6 minimum
+
+    // For GUARANTEED HIT tier we require the most critical ones
+    const criticalIndicatorsOk = macdLongOk && emaLongOk && momentumOk;
 
     const direction = "LONG" as const;
 
     // ============================================================
     // MOMENTUM-BASED TP CALCULATION
-    //
-    // Key insight: TP should be proportional to current momentum.
-    // A coin moving 5% today has the velocity to move another 2-4%.
-    // A coin moving 15% today can realistically do 6-10% more.
-    // We use ATR as the base unit (actual measured volatility),
-    // then scale by momentum strength.
+    // TP is proportional to current momentum — coin already in motion hits TP faster
     // ============================================================
     const atrPct = coin.price !== 0 ? atr / coin.price : 0.01;
-    const momentum = coin.priceChange24h; // % moved today
+    const momentum = coin.priceChange24h;
 
     let tpPct: number;
     let tpSource: string;
     let superHighProfit = false;
 
     if (momentum >= 20) {
-      // Very strong breakout — 100x/super high profit candidate
       tpPct = Math.max(atrPct * 10, 0.08);
       tpSource = `Strong breakout (${momentum.toFixed(1)}% today, ATR×10)`;
       superHighProfit = true;
     } else if (momentum >= 10) {
-      // High momentum breakout — Super High Profit
       tpPct = Math.max(atrPct * 6, 0.05);
       tpSource = `High momentum breakout (${momentum.toFixed(1)}% today, ATR×6)`;
       superHighProfit = true;
     } else if (momentum >= 5) {
-      // Medium-high momentum — High Profit territory
       tpPct = Math.max(atrPct * 3.5, 0.025);
       tpSource = `Medium-high momentum (${momentum.toFixed(1)}% today, ATR×3.5)`;
     } else if (momentum >= 2) {
-      // Moderate momentum
       tpPct = Math.max(atrPct * 2.5, 0.015);
       tpSource = `Moderate momentum (${momentum.toFixed(1)}% today, ATR×2.5)`;
     } else {
-      // Low but positive momentum
       tpPct = Math.max(atrPct * 1.8, 0.008);
       tpSource = `Low momentum (${momentum.toFixed(1)}% today, ATR×1.8)`;
     }
 
-    // ALSO check 24h high: if TP exceeds 24h high, cap it there
-    // (price hasn't been above 24h high — don't target it)
+    // Cap TP at 24h high (proven resistance — price has already been there)
     const high24h = coin.high24h ?? coin.price * (1 + tpPct * 1.2);
     const distToHigh = (high24h - coin.price) / coin.price;
     if (distToHigh > 0 && distToHigh < tpPct) {
-      // 24h high is closer than our ATR projection
-      // Use 24h high as the target (it's been there today)
       tpPct = distToHigh * 0.95;
-      tpSource = `24h high resistance (${(distToHigh * 100).toFixed(1)}% away)`;
+      tpSource = `24h high resistance (${(distToHigh * 100).toFixed(1)}% away) — proven level`;
     }
 
-    // Ensure minimum viable profit
     tpPct = Math.max(tpPct, 0.005);
 
     // ============================================================
-    // SL: Wide enough to survive volatility but rational
-    // SL = ATR × 3 minimum, scales with profit expectation
-    // Wide SL is key to high win rate (geometric probability)
+    // SL: Wide to survive volatility — key to high win rate
+    // Minimum ratio: SL must be 2.8× TP for ~74% geometric win prob
     // ============================================================
     const slMultiplier = Math.max(profile.slMultiplier, 1.5);
-    // SL must be at least 2× TP to maintain 67%+ geometric win prob
-    // We target 2.5× TP ratio for ~71% win prob minimum
-    const slFromRR = tpPct * 2.5;
-    const slFromATR = atrPct * 3 * slMultiplier;
-    const slPct = Math.min(Math.max(slFromRR, slFromATR, 0.025), 0.2);
+    const slFromRR = tpPct * 2.8; // 2.8× gives 73.7% win prob
+    const slFromATR = atrPct * 3.5 * slMultiplier;
+    const slPct = Math.min(Math.max(slFromRR, slFromATR, 0.03), 0.22);
 
     // Geometric win probability P(TP before SL) = SL / (TP + SL)
     const tpHitProbability = slPct / (tpPct + slPct);
-    if (tpHitProbability < 0.68) continue; // minimum 68%
+    if (tpHitProbability < 0.72) continue; // raised from 0.68 to 0.72
 
     const tp = coin.price * (1 + tpPct);
     const sl = coin.price * (1 - slPct);
 
     // ============================================================
     // ACCURATE TIME-TO-TP ESTIMATE
-    //
-    // Based on actual price velocity:
-    // If the coin moved X% in 24 hours, its hourly rate is X/24.
-    // To move another tpPct, it needs (tpPct / hourlyRate) hours.
-    // We apply a 0.6 efficiency factor (momentum doesn't stay constant).
     // ============================================================
-    const hourlyMomentumPct = Math.max(Math.abs(momentum) / 24, 0.05); // % per hour
+    const hourlyMomentumPct = Math.max(Math.abs(momentum) / 24, 0.05);
     const rawHours = (tpPct * 100) / (hourlyMomentumPct * 0.6);
     const estimatedHours = Math.max(1, Math.min(48, Math.round(rawHours)));
 
@@ -306,7 +293,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     // ML SCORING
     // ============================================================
     let mlScore = 78;
-    const rsiIdeal = 50;
+    const rsiIdeal = 52;
     mlScore += Math.max(0, (15 - Math.abs(rsi - rsiIdeal)) / 15) * 8;
     if (ema21 !== 0) {
       const emaDiff = Math.abs((ema9 - ema21) / ema21);
@@ -317,12 +304,13 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     if (momentum > 2) mlScore += 2;
     if (momentum > 5) mlScore += 2;
     if (momentum > 10) mlScore += 3;
-    if (tpSource.includes("24h")) mlScore += 3; // proven level bonus
+    if (tpSource.includes("24h")) mlScore += 4; // proven resistance bonus
+    if (indicatorsAligned === 6) mlScore = Math.min(99, mlScore + 4); // all 6 aligned
+    if (indicatorsAligned === 5) mlScore = Math.min(99, mlScore + 2);
     if (profile.wins > 0 && profile.losses === 0)
       mlScore = Math.min(99, mlScore + 3);
     if (profile.wins >= 3) mlScore = Math.min(99, mlScore + 2);
     if (superHighProfit) mlScore = Math.min(99, mlScore + 2);
-    // Fast-hit bonus: high momentum + small TP = almost certain
     if (estimatedHours <= 6 && tpHitProbability >= 0.75)
       mlScore = Math.min(99, mlScore + 3);
 
@@ -342,12 +330,26 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     const profitPotential: "High" | "Medium" =
       tpPct >= 0.02 && tpProbabilityPct >= 75 ? "High" : "Medium";
 
-    // GUARANTEED HIT: 83%+ win prob + 88%+ confidence + strong indicators
+    // GUARANTEED HIT: wide SL + all critical indicators + high confidence
     const guaranteedHit =
-      tpHitProbability >= 0.83 &&
-      Math.round(mlScore) >= 85 &&
-      macd.histogram > 0 &&
-      ema9 > ema21;
+      tpHitProbability >= 0.8 &&
+      Math.round(mlScore) >= 88 &&
+      criticalIndicatorsOk &&
+      indicatorsAligned >= 5;
+
+    // ============================================================
+    // SURETY SCORE (0-100)
+    // Measures how certain this trade is to hit TP.
+    // Weights: TP probability 45%, confidence 30%, indicator alignment 15%, momentum quality 10%
+    // ============================================================
+    const indicatorAlignmentPct = (indicatorsAligned / 6) * 100;
+    const momentumQuality = Math.min(100, momentum * 5); // 0–20% momentum maps to 0–100
+    const suretyScore = Math.round(
+      tpProbabilityPct * 0.45 +
+        confidence * 0.3 +
+        indicatorAlignmentPct * 0.15 +
+        momentumQuality * 0.1,
+    );
 
     seenSymbols.add(coin.symbol);
 
@@ -383,7 +385,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       strengthLabel,
       dumpRisk,
       isTrending: momentum > 5,
-      analysis: `RSI ${rsi.toFixed(1)} | ${tpSource} | Win Prob ${tpProbabilityPct}% | TP +${(tpPct * 100).toFixed(2)}% | SL -${(slPct * 100).toFixed(1)}% | Est ${estimatedHours}h | 24h momentum ${momentum.toFixed(1)}%`,
+      analysis: `RSI ${rsi.toFixed(1)} | ${tpSource} | Win Prob ${tpProbabilityPct}% | TP +${(tpPct * 100).toFixed(2)}% | SL -${(slPct * 100).toFixed(1)}% | Est ${estimatedHours}h | ${indicatorsAligned}/6 indicators | Surety ${suretyScore}`,
       status: "active",
       timestamp: Date.now(),
       hourSeed,
@@ -392,6 +394,8 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       profitPotential,
       superHighProfit,
       guaranteedHit,
+      suretyScore,
+      indicatorsAligned,
       score: compositeScore,
     });
   }

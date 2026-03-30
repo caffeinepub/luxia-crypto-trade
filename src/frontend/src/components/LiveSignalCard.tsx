@@ -75,6 +75,30 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
 
   const isHighProfit = signal.profitPotential === "High";
 
+  // Speed classification
+  const momentum = signal.momentum ?? 0;
+  const isSuperFast = signal.estimatedHours <= 1 || momentum >= 20;
+  const isFast = !isSuperFast && (signal.estimatedHours <= 3 || momentum >= 10);
+  const isVerySlow =
+    !isSuperFast && !isFast && (signal.estimatedHours >= 36 || momentum < 0.8);
+  const isSlow =
+    !isSuperFast &&
+    !isFast &&
+    !isVerySlow &&
+    (signal.estimatedHours >= 20 || momentum < 1.5);
+
+  // Card border/shadow class
+  let cardBorderClass: string;
+  if (isSuperFast) {
+    cardBorderClass = "border-2 border-orange-400 shadow-[0_0_14px_#fb923c40]";
+  } else if (isHighProfit) {
+    cardBorderClass = "border-2 border-[#C9A84C] shadow-[0_0_12px_#C9A84C30]";
+  } else if (isVerySlow || isSlow) {
+    cardBorderClass = "border border-slate-200 shadow-sm opacity-90";
+  } else {
+    cardBorderClass = "border border-gray-300 shadow-md";
+  }
+
   // Profit % if TP is hit
   const tpProfitPct = isLong
     ? ((signal.takeProfit - signal.entryPrice) / signal.entryPrice) * 100
@@ -141,11 +165,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
         transition={{ delay: index * 0.05 }}
         data-ocid={`signal.item.${index + 1}`}
         onClick={handleCardClick}
-        className={`bg-white rounded-2xl w-full cursor-pointer hover:shadow-lg transition-shadow flex flex-col ${
-          isHighProfit
-            ? "border-2 border-[#C9A84C] shadow-[0_0_12px_#C9A84C30]"
-            : "border border-gray-300 shadow-md"
-        }`}
+        className={`bg-white rounded-2xl w-full cursor-pointer hover:shadow-lg transition-shadow flex flex-col ${cardBorderClass}`}
       >
         {/* HIGH PROFIT badge — gold crown strip */}
         {isHighProfit && !signal.guaranteedHit && !signal.superHighProfit && (
@@ -367,6 +387,44 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
           <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
             ~{signal.estimatedHours}h
           </span>
+
+          {/* Speed badge */}
+          {isSuperFast && (
+            <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-orange-100 text-orange-700 border border-orange-400 animate-pulse">
+              ⚡⚡ VERY FAST
+            </span>
+          )}
+          {isFast && (
+            <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-amber-50 text-amber-600">
+              ⚡ FAST
+            </span>
+          )}
+          {isVerySlow && (
+            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-500 border border-slate-300">
+              🐢 VERY SLOW
+            </span>
+          )}
+          {isSlow && (
+            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-50 text-slate-400">
+              🐌 SLOW
+            </span>
+          )}
+
+          {/* Surety Score badge */}
+          {signal.suretyScore !== undefined && (
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                signal.suretyScore >= 85
+                  ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                  : signal.suretyScore >= 75
+                    ? "bg-teal-50 text-teal-700"
+                    : "bg-gray-100 text-gray-500"
+              }`}
+              title="Surety Score: how likely this trade hits TP (TP prob + confidence + indicators)"
+            >
+              🎯 {signal.suretyScore} Surety
+            </span>
+          )}
         </div>
 
         {/* Progress Bars */}

@@ -18,6 +18,7 @@ type SortKey =
   | "profit"
   | "confidence"
   | "tpProbability"
+  | "surety"
   | "guaranteedFirst";
 
 const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
@@ -25,6 +26,11 @@ const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
     key: "composite",
     label: "Composite (Recommended)",
     desc: "Profit · Confidence · TP Probability",
+  },
+  {
+    key: "surety",
+    label: "🎯 Highest Surety (Will Hit TP)",
+    desc: "Most certain to hit TP — TP prob + confidence + indicator alignment",
   },
   {
     key: "profit",
@@ -63,6 +69,8 @@ function compositeScore(s: Signal) {
 function sortSignals(signals: Signal[], key: SortKey): Signal[] {
   const arr = signals.slice();
   switch (key) {
+    case "surety":
+      return arr.sort((a, b) => (b.suretyScore ?? 0) - (a.suretyScore ?? 0));
     case "profit":
       return arr.sort((a, b) => profitPct(b) - profitPct(a));
     case "confidence":
@@ -85,39 +93,45 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
 
 function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
   switch (type) {
+    case "fast":
+      // Only trades that will hit TP in few hours or minutes — estimatedHours <= 4
+      return signals.filter(
+        (s) =>
+          s.action === "BUY" &&
+          s.estimatedHours <= 4 &&
+          (s.takeProfit - s.entryPrice) / (s.entryPrice || 1) <= 0.1,
+      );
+
     case "tradeNow":
+      // Only signals where current price is within 1.5% of entry — can enter NOW
       return signals.filter(
         (s) =>
           Math.abs(s.currentPrice - s.entryPrice) / (s.entryPrice || 1) <=
           0.015,
       );
-    case "active":
-      return signals; // engine already enforces quality gates
+
     case "highProfit":
+      // ONLY trades with profit between 2% and 10% (inclusive)
       return signals
         .filter((s) => {
           const pp = (s.takeProfit - s.entryPrice) / (s.entryPrice || 1);
-          return pp >= 0.015; // at least 1.5% profit
+          return pp >= 0.02 && pp <= 0.1;
         })
         .sort(
           (a, b) =>
             (b.takeProfit - b.entryPrice) / (b.entryPrice || 1) -
             (a.takeProfit - a.entryPrice) / (a.entryPrice || 1),
         );
+
     case "superHighProfit":
+      // ONLY trades with profit above 10%
       return signals
         .filter((s) => {
           const pp = (s.takeProfit - s.entryPrice) / (s.entryPrice || 1);
-          return s.superHighProfit || pp >= 0.05; // 5%+ profit OR flagged
+          return pp > 0.1;
         })
         .sort((a, b) => profitPct(b) - profitPct(a));
-    case "fast":
-      return signals.filter(
-        (s) =>
-          s.action === "BUY" &&
-          s.estimatedHours <= 6 &&
-          (s.takeProfit - s.entryPrice) / (s.entryPrice || 1) <= 0.1,
-      );
+
     default:
       return signals;
   }
@@ -147,8 +161,8 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
   const filtered = filterSignals(signals, type);
   const sorted = sortSignals(filtered, sortKey);
 
-  const activeSortLabel =
-    SORT_OPTIONS.find((o) => o.key === sortKey)?.label ?? "Sort";
+  const activeSortOption = SORT_OPTIONS.find((o) => o.key === sortKey);
+  const activeSortLabel = activeSortOption?.label ?? "Sort";
 
   if (isLocked) return <CreditLockout />;
 
@@ -192,7 +206,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
             <h1 className="text-[#0A1628] font-bold text-2xl">{title}</h1>
           </div>
           <p className="text-[#0A1628]/50 text-sm mb-3">
-            {type === "fast" ? "TP target in under 6 hours" : subtitle}
+            {type === "fast"
+              ? "TP target in 4 hours or less — fast moving trades"
+              : subtitle}
           </p>
 
           {/* Stats + Sort row */}
@@ -208,6 +224,11 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                 Updating...
               </span>
             )}
+            {sortKey === "surety" && (
+              <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full font-medium text-xs border border-emerald-200">
+                🎯 Ranked by surety — highest chance to hit TP first
+              </span>
+            )}
 
             {/* Sort button */}
             <div ref={dropdownRef} className="relative ml-auto">
@@ -215,10 +236,14 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                 type="button"
                 data-ocid="signal.sort_button"
                 onClick={() => setDropdownOpen((v) => !v)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#0A1628]/20 bg-white text-[#0A1628] text-xs font-medium shadow-sm hover:border-[#C9A84C] hover:text-[#C9A84C] transition-colors"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium shadow-sm transition-colors ${
+                  sortKey === "surety"
+                    ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                    : "border-[#0A1628]/20 bg-white text-[#0A1628] hover:border-[#C9A84C] hover:text-[#C9A84C]"
+                }`}
               >
                 <SlidersHorizontal size={13} />
-                <span>Sort</span>
+                <span>{sortKey === "surety" ? "🎯 Surety" : "Sort"}</span>
                 <ChevronDown
                   size={12}
                   className={`transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
@@ -233,7 +258,7 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -6, scale: 0.97 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-2 w-64 bg-white border border-[#0A1628]/10 rounded-xl shadow-xl z-50 overflow-hidden"
+                    className="absolute right-0 top-full mt-2 w-72 bg-white border border-[#0A1628]/10 rounded-xl shadow-xl z-50 overflow-hidden"
                   >
                     <div className="px-4 py-2.5 border-b border-[#0A1628]/10 bg-[#0A1628]/[0.03]">
                       <p className="text-[#0A1628] font-semibold text-xs uppercase tracking-wider">
@@ -243,6 +268,7 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                     <div className="py-1.5">
                       {SORT_OPTIONS.map((opt) => {
                         const selected = sortKey === opt.key;
+                        const isSurety = opt.key === "surety";
                         return (
                           <button
                             type="button"
@@ -252,24 +278,40 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                               setSortKey(opt.key);
                               setDropdownOpen(false);
                             }}
-                            className="w-full flex items-start gap-3 px-4 py-2.5 hover:bg-amber-50 transition-colors text-left"
+                            className={`w-full flex items-start gap-3 px-4 py-2.5 transition-colors text-left ${
+                              isSurety
+                                ? selected
+                                  ? "bg-emerald-50"
+                                  : "hover:bg-emerald-50/60"
+                                : "hover:bg-amber-50"
+                            }`}
                           >
                             {/* Radio dot */}
                             <span
                               className={`mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${
                                 selected
-                                  ? "border-[#C9A84C] bg-[#C9A84C]/10"
+                                  ? isSurety
+                                    ? "border-emerald-500 bg-emerald-500/10"
+                                    : "border-[#C9A84C] bg-[#C9A84C]/10"
                                   : "border-[#0A1628]/25"
                               }`}
                             >
                               {selected && (
-                                <span className="w-2 h-2 rounded-full bg-[#C9A84C] block" />
+                                <span
+                                  className={`w-2 h-2 rounded-full block ${
+                                    isSurety ? "bg-emerald-500" : "bg-[#C9A84C]"
+                                  }`}
+                                />
                               )}
                             </span>
                             <div>
                               <p
                                 className={`text-xs font-semibold leading-tight ${
-                                  selected ? "text-[#C9A84C]" : "text-[#0A1628]"
+                                  selected
+                                    ? isSurety
+                                      ? "text-emerald-600"
+                                      : "text-[#C9A84C]"
+                                    : "text-[#0A1628]"
                                 }`}
                               >
                                 {opt.label}
@@ -285,7 +327,13 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                     <div className="px-4 py-2 border-t border-[#0A1628]/10 bg-[#0A1628]/[0.02]">
                       <p className="text-[10px] text-[#0A1628]/30">
                         Active:{" "}
-                        <span className="text-[#C9A84C] font-medium">
+                        <span
+                          className={`font-medium ${
+                            sortKey === "surety"
+                              ? "text-emerald-600"
+                              : "text-[#C9A84C]"
+                          }`}
+                        >
                           {activeSortLabel}
                         </span>
                       </p>
