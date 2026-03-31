@@ -11,7 +11,7 @@ interface LoginModalProps {
 }
 
 export default function LoginModal({ open, onClose }: LoginModalProps) {
-  const { login } = useAuth();
+  const { login, usersLoading } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -22,7 +22,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     setError("");
     setLoading(true);
     await new Promise((r) => setTimeout(r, 400));
-    const ok = login(username.trim(), password);
+    const ok = await login(username.trim(), password);
     setLoading(false);
     if (!ok) {
       setError("Invalid username or password.");
@@ -121,6 +121,13 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
                     className="placeholder:text-white/30 focus:border-[#C9A84C]/50 focus:ring-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                   />
                 </div>
+
+                {usersLoading && (
+                  <p className="text-[#C9A84C]/70 text-xs text-center flex items-center justify-center gap-1.5">
+                    <span className="inline-block w-2 h-2 rounded-full bg-[#C9A84C]/60 animate-pulse" />
+                    Syncing accounts from blockchain...
+                  </p>
+                )}
 
                 {error && (
                   <p

@@ -10,7 +10,38 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
-export interface _SERVICE {}
+export interface HttpHeader { 'name': string; 'value': string }
+export interface HttpResponsePayload {
+  'status': bigint;
+  'headers': Array<HttpHeader>;
+  'body': Uint8Array | number[];
+}
+export interface TransformArgs {
+  'response': HttpResponsePayload;
+  'context': Uint8Array | number[];
+}
+
+export interface _SERVICE {
+  'saveUsers': ActorMethod<[string], undefined>;
+  'getUsers': ActorMethod<[], string>;
+  'saveTrackedTrades': ActorMethod<[string, string], undefined>;
+  'getTrackedTrades': ActorMethod<[string], string>;
+  'saveAILearning': ActorMethod<[string], undefined>;
+  'getAILearning': ActorMethod<[], string>;
+  'saveCoinProfiles': ActorMethod<[string], undefined>;
+  'getCoinProfiles': ActorMethod<[], string>;
+  'saveAISkillLog': ActorMethod<[string], undefined>;
+  'getAISkillLog': ActorMethod<[], string>;
+  'saveAIParamHistory': ActorMethod<[string], undefined>;
+  'getAIParamHistory': ActorMethod<[], string>;
+  'saveAIRewriteLog': ActorMethod<[string], undefined>;
+  'getAIRewriteLog': ActorMethod<[], string>;
+  'recordGlobalOutcome': ActorMethod<[string], undefined>;
+  'getGlobalStats': ActorMethod<[], string>;
+  'transform': ActorMethod<[TransformArgs], HttpResponsePayload>;
+  'getBingXSymbols': ActorMethod<[], string>;
+  'getCoinGeckoPage': ActorMethod<[bigint], string>;
+}
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];
 export declare const idlFactory: IDL.InterfaceFactory;

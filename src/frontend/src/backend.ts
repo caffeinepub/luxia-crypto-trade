@@ -90,9 +90,82 @@ export class ExternalBlob {
     }
 }
 export interface backendInterface {
+    saveUsers(data: string): Promise<void>;
+    getUsers(): Promise<string>;
+    saveTrackedTrades(uid: string, data: string): Promise<void>;
+    getTrackedTrades(uid: string): Promise<string>;
+    saveAILearning(data: string): Promise<void>;
+    getAILearning(): Promise<string>;
+    saveCoinProfiles(data: string): Promise<void>;
+    getCoinProfiles(): Promise<string>;
+    saveAISkillLog(data: string): Promise<void>;
+    getAISkillLog(): Promise<string>;
+    saveAIParamHistory(data: string): Promise<void>;
+    getAIParamHistory(): Promise<string>;
+    saveAIRewriteLog(data: string): Promise<void>;
+    getAIRewriteLog(): Promise<string>;
+    recordGlobalOutcome(outcome: string): Promise<void>;
+    getGlobalStats(): Promise<string>;
+    getBingXSymbols(): Promise<string>;
+    getCoinGeckoPage(page: bigint): Promise<string>;
 }
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
+
+    async saveUsers(data: string): Promise<void> {
+        try { await (this.actor as any).saveUsers(data); } catch (e) { if (this.processError) this.processError(e); else throw e; }
+    }
+    async getUsers(): Promise<string> {
+        try { return await (this.actor as any).getUsers(); } catch (e) { if (this.processError) this.processError(e); else throw e; return ""; }
+    }
+    async saveTrackedTrades(uid: string, data: string): Promise<void> {
+        try { await (this.actor as any).saveTrackedTrades(uid, data); } catch (e) { if (this.processError) this.processError(e); else throw e; }
+    }
+    async getTrackedTrades(uid: string): Promise<string> {
+        try { return await (this.actor as any).getTrackedTrades(uid); } catch (e) { if (this.processError) this.processError(e); else throw e; return ""; }
+    }
+    async saveAILearning(data: string): Promise<void> {
+        try { await (this.actor as any).saveAILearning(data); } catch (e) { if (this.processError) this.processError(e); else throw e; }
+    }
+    async getAILearning(): Promise<string> {
+        try { return await (this.actor as any).getAILearning(); } catch (e) { if (this.processError) this.processError(e); else throw e; return ""; }
+    }
+    async saveCoinProfiles(data: string): Promise<void> {
+        try { await (this.actor as any).saveCoinProfiles(data); } catch (e) { if (this.processError) this.processError(e); else throw e; }
+    }
+    async getCoinProfiles(): Promise<string> {
+        try { return await (this.actor as any).getCoinProfiles(); } catch (e) { if (this.processError) this.processError(e); else throw e; return ""; }
+    }
+    async saveAISkillLog(data: string): Promise<void> {
+        try { await (this.actor as any).saveAISkillLog(data); } catch (e) { if (this.processError) this.processError(e); else throw e; }
+    }
+    async getAISkillLog(): Promise<string> {
+        try { return await (this.actor as any).getAISkillLog(); } catch (e) { if (this.processError) this.processError(e); else throw e; return ""; }
+    }
+    async saveAIParamHistory(data: string): Promise<void> {
+        try { await (this.actor as any).saveAIParamHistory(data); } catch (e) { if (this.processError) this.processError(e); else throw e; }
+    }
+    async getAIParamHistory(): Promise<string> {
+        try { return await (this.actor as any).getAIParamHistory(); } catch (e) { if (this.processError) this.processError(e); else throw e; return ""; }
+    }
+    async saveAIRewriteLog(data: string): Promise<void> {
+        try { await (this.actor as any).saveAIRewriteLog(data); } catch (e) { if (this.processError) this.processError(e); else throw e; }
+    }
+    async getAIRewriteLog(): Promise<string> {
+        try { return await (this.actor as any).getAIRewriteLog(); } catch (e) { if (this.processError) this.processError(e); else throw e; return ""; }
+    }
+    async recordGlobalOutcome(outcome: string): Promise<void> {
+        try { await (this.actor as any).recordGlobalOutcome(outcome); } catch (e) { if (this.processError) this.processError(e); else throw e; }
+    }
+    async getGlobalStats(): Promise<string> {
+        try { return await (this.actor as any).getGlobalStats(); } catch (e) { if (this.processError) this.processError(e); else throw e; return ""; }
+    }
+    async getBingXSymbols(): Promise<string> {
+        try { return await (this.actor as any).getBingXSymbols(); } catch (e) { if (this.processError) this.processError(e); else throw e; return ""; }
+    }
+    async getCoinGeckoPage(page: bigint): Promise<string> {
+        try { return await (this.actor as any).getCoinGeckoPage(page); } catch (e) { if (this.processError) this.processError(e); else throw e; return ""; }
+    }
 }
 export interface CreateActorOptions {
     agent?: Agent;

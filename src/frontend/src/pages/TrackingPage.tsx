@@ -9,6 +9,7 @@ import { analyzeTrackedTrade, chatWithAI } from "../services/ai";
 import { getLearningStats, recordOutcome } from "../services/aiLearning";
 import {
   loadTrackedTradesFromBackend,
+  recordGlobalOutcome,
   saveTrackedTradesToBackend,
 } from "../services/backendStorage";
 import type { Signal } from "../services/signalEngine";
@@ -176,6 +177,7 @@ export default function TrackingPage() {
                 entryPrice: trade.entryPrice,
                 stopLoss: trade.stopLoss,
               });
+              recordGlobalOutcome("hit");
               toast.success(
                 `🎯 ${trade.symbol} already hit TP while you were away!`,
                 {
@@ -205,6 +207,7 @@ export default function TrackingPage() {
                 entryPrice: trade.entryPrice,
                 stopLoss: trade.stopLoss,
               });
+              recordGlobalOutcome("miss");
               toast.error(
                 `⚠️ ${trade.symbol} hit SL while you were away — marked as loss`,
                 { duration: 6000 },
@@ -355,6 +358,7 @@ export default function TrackingPage() {
         timestamp: Date.now(),
       });
       setLearningStats(getLearningStats());
+      recordGlobalOutcome(outcome === "hit" ? "hit" : "miss");
     }
     const updated = trades.map((t) => (t.id === id ? { ...t, outcome } : t));
     setTrades(updated);

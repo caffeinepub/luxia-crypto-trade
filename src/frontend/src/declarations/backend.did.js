@@ -8,10 +8,73 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
-export const idlService = IDL.Service({});
+const HttpHeader = IDL.Record({ 'name': IDL.Text, 'value': IDL.Text });
+const HttpResponsePayload = IDL.Record({
+  'status': IDL.Nat,
+  'headers': IDL.Vec(HttpHeader),
+  'body': IDL.Vec(IDL.Nat8),
+});
+const TransformArgs = IDL.Record({
+  'response': HttpResponsePayload,
+  'context': IDL.Vec(IDL.Nat8),
+});
+
+export const idlService = IDL.Service({
+  'saveUsers': IDL.Func([IDL.Text], [], []),
+  'getUsers': IDL.Func([], [IDL.Text], ['query']),
+  'saveTrackedTrades': IDL.Func([IDL.Text, IDL.Text], [], []),
+  'getTrackedTrades': IDL.Func([IDL.Text], [IDL.Text], ['query']),
+  'saveAILearning': IDL.Func([IDL.Text], [], []),
+  'getAILearning': IDL.Func([], [IDL.Text], ['query']),
+  'saveCoinProfiles': IDL.Func([IDL.Text], [], []),
+  'getCoinProfiles': IDL.Func([], [IDL.Text], ['query']),
+  'saveAISkillLog': IDL.Func([IDL.Text], [], []),
+  'getAISkillLog': IDL.Func([], [IDL.Text], ['query']),
+  'saveAIParamHistory': IDL.Func([IDL.Text], [], []),
+  'getAIParamHistory': IDL.Func([], [IDL.Text], ['query']),
+  'saveAIRewriteLog': IDL.Func([IDL.Text], [], []),
+  'getAIRewriteLog': IDL.Func([], [IDL.Text], ['query']),
+  'recordGlobalOutcome': IDL.Func([IDL.Text], [], []),
+  'getGlobalStats': IDL.Func([], [IDL.Text], ['query']),
+  'transform': IDL.Func([TransformArgs], [HttpResponsePayload], ['query']),
+  'getBingXSymbols': IDL.Func([], [IDL.Text], []),
+  'getCoinGeckoPage': IDL.Func([IDL.Nat], [IDL.Text], []),
+});
 
 export const idlInitArgs = [];
 
-export const idlFactory = ({ IDL }) => { return IDL.Service({}); };
+export const idlFactory = ({ IDL }) => {
+  const HttpHeader = IDL.Record({ 'name': IDL.Text, 'value': IDL.Text });
+  const HttpResponsePayload = IDL.Record({
+    'status': IDL.Nat,
+    'headers': IDL.Vec(HttpHeader),
+    'body': IDL.Vec(IDL.Nat8),
+  });
+  const TransformArgs = IDL.Record({
+    'response': HttpResponsePayload,
+    'context': IDL.Vec(IDL.Nat8),
+  });
+  return IDL.Service({
+    'saveUsers': IDL.Func([IDL.Text], [], []),
+    'getUsers': IDL.Func([], [IDL.Text], ['query']),
+    'saveTrackedTrades': IDL.Func([IDL.Text, IDL.Text], [], []),
+    'getTrackedTrades': IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'saveAILearning': IDL.Func([IDL.Text], [], []),
+    'getAILearning': IDL.Func([], [IDL.Text], ['query']),
+    'saveCoinProfiles': IDL.Func([IDL.Text], [], []),
+    'getCoinProfiles': IDL.Func([], [IDL.Text], ['query']),
+    'saveAISkillLog': IDL.Func([IDL.Text], [], []),
+    'getAISkillLog': IDL.Func([], [IDL.Text], ['query']),
+    'saveAIParamHistory': IDL.Func([IDL.Text], [], []),
+    'getAIParamHistory': IDL.Func([], [IDL.Text], ['query']),
+    'saveAIRewriteLog': IDL.Func([IDL.Text], [], []),
+    'getAIRewriteLog': IDL.Func([], [IDL.Text], ['query']),
+    'recordGlobalOutcome': IDL.Func([IDL.Text], [], []),
+    'getGlobalStats': IDL.Func([], [IDL.Text], ['query']),
+    'transform': IDL.Func([TransformArgs], [HttpResponsePayload], ['query']),
+    'getBingXSymbols': IDL.Func([], [IDL.Text], []),
+    'getCoinGeckoPage': IDL.Func([IDL.Nat], [IDL.Text], []),
+  });
+};
 
 export const init = ({ IDL }) => { return []; };

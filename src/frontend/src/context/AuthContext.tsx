@@ -73,12 +73,13 @@ function getUsers(): StoredUser[] {
 
 interface AuthContextValue {
   user: LuxiaUser;
-  login: (username: string, password: string) => boolean;
+  login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   addUser: (user: StoredUser) => void;
   updateUser: (updates: Partial<LuxiaUser>) => void;
   updateUserCredits: (uid: string, credits: number) => void;
   isAdmin: boolean;
+  usersLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -93,39 +94,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return GUEST_USER;
   });
 
+  const [usersLoading, setUsersLoading] = useState(true);
+
   // On mount: sync users from backend (backend is authoritative)
   useEffect(() => {
-    loadUsersFromBackend().then((backendRaw) => {
-      if (!backendRaw) return;
-      try {
-        const backendUsers: StoredUser[] = JSON.parse(backendRaw);
-        if (!Array.isArray(backendUsers) || backendUsers.length === 0) return;
-        // Merge: backend users take priority, preserve any locally added users not in backend
-        const localUsers = getUsers();
-        const merged = [...backendUsers];
-        for (const lu of localUsers) {
-          if (!merged.find((bu) => bu.uid === lu.uid)) {
-            merged.push(lu);
+    loadUsersFromBackend()
+      .then((backendRaw) => {
+        if (!backendRaw) return;
+        try {
+          const backendUsers: StoredUser[] = JSON.parse(backendRaw);
+          if (!Array.isArray(backendUsers) || backendUsers.length === 0) return;
+          // Merge: backend users take priority, preserve any locally added users not in backend
+          const localUsers = getUsers();
+          const merged = [...backendUsers];
+          for (const lu of localUsers) {
+            if (!merged.find((bu) => bu.uid === lu.uid)) {
+              merged.push(lu);
+            }
           }
-        }
-        localStorage.setItem(USERS_KEY, JSON.stringify(merged));
-      } catch {}
-    });
+          localStorage.setItem(USERS_KEY, JSON.stringify(merged));
+        } catch {}
+      })
+      .finally(() => {
+        setUsersLoading(false);
+      });
   }, []);
 
-  const login = (username: string, password: string): boolean => {
-    const users = getUsers();
-    const found = users.find(
-      (u) => u.username === username && u.password === password,
-    );
-    if (!found) return false;
-    const { password: _pw, ...userData } = found;
-    if (userData.role === "premium" && userData.credits === undefined) {
-      userData.credits = 100;
+  const login = async (
+    username: string,
+    password: string,
+  ): Promise<boolean> => {
+    // First attempt with whatever is in localStorage
+    const tryLogin = (users: StoredUser[]): boolean => {
+      const found = users.find(
+        (u) => u.username === username && u.password === password,
+      );
+      if (!found) return false;
+      const { password: _pw, ...userData } = found;
+      if (userData.role === "premium" && userData.credits === undefined) {
+        userData.credits = 100;
+      }
+      setUser(userData);
+      localStorage.setItem(SESSION_KEY, JSON.stringify(userData));
+      return true;
+    };
+
+    const localUsers = getUsers();
+    if (tryLogin(localUsers)) return true;
+
+    // Not found locally — this may be a new device. Force a fresh sync from backend.
+    try {
+      const backendRaw = await loadUsersFromBackend();
+      if (backendRaw) {
+        const backendUsers: StoredUser[] = JSON.parse(backendRaw);
+        if (Array.isArray(backendUsers) && backendUsers.length > 0) {
+          // Merge backend users into localStorage
+          const merged = [...backendUsers];
+          for (const lu of localUsers) {
+            if (!merged.find((bu) => bu.uid === lu.uid)) {
+              merged.push(lu);
+            }
+          }
+          localStorage.setItem(USERS_KEY, JSON.stringify(merged));
+          // Retry login with freshly merged list
+          if (tryLogin(merged)) return true;
+        }
+      }
+    } catch {
+      // backend unavailable — fall through
     }
-    setUser(userData);
-    localStorage.setItem(SESSION_KEY, JSON.stringify(userData));
-    return true;
+
+    return false;
   };
 
   const logout = () => {
@@ -182,6 +221,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         updateUser,
         updateUserCredits,
         isAdmin: user.role === "admin",
+        usersLoading,
       }}
     >
       {children}

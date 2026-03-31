@@ -1,28 +1,65 @@
 # Luxia Crypto Trade
 
 ## Current State
-Full trading signal platform with signal pages, tracking, AI dashboard, admin panel, news, and founder pages. Navigation uses a scrollable snackbar + left sidebar.
+
+All backend canister methods are defined in `src/backend/main.mo` (saveUsers, getUsers, saveTrackedTrades, getTrackedTrades, saveAILearning, getAILearning, saveCoinProfiles, getCoinProfiles, saveAISkillLog, getAISkillLog, saveAIParamHistory, getAIParamHistory, saveAIRewriteLog, getAIRewriteLog, recordGlobalOutcome, getGlobalStats, getBingXSymbols, getCoinGeckoPage).
+
+However:
+1. `src/frontend/src/declarations/backend.did.js` defines `IDL.Service({})` — completely empty. No methods exist in the IDL.
+2. `src/frontend/src/declarations/backend.did.d.ts` has `export interface _SERVICE {}` — empty.
+3. `src/frontend/src/backend.ts` — `Backend` class has no method implementations. Just a constructor.
+4. Because of #1-3, every `actor.getUsers()` / `actor.saveUsers()` etc call silently throws and returns empty string from the catch block in `backendStorage.ts`.
+5. `AuthContext.tsx` `login()` is synchronous and only reads localStorage. On a new device, localStorage is empty until the async backend sync completes. User can't login before that completes.
 
 ## Requested Changes (Diff)
 
 ### Add
-- New **Instructions** page/tab accessible from sidebar navigation and snackbar
-- The page has three internal navigation tabs (lines/sections):
-  1. **How to Trade** — Step-by-step guide to using signals without loss (entry rules, SL rules, when to exit, risk management)
-  2. **Signal Thresholds** — What Confidence %, Winning Probability %, and Surety Rate % values indicate a high-probability winning trade (with visual thresholds/charts)
-  3. **Trading Rules** — Full ruleset: never trade below X confidence, always respect SL, how to use Guaranteed Hit badge, when to track vs skip, position sizing basics
+- Proper IDL service definition in `backend.did.js` and `backend.did.d.ts` for all canister methods
+- Proper method proxy implementations in `Backend` class in `backend.ts`
+- `usersLoaded` state in `AuthContext` to track when backend sync is done
+- Async `login()` that fetches users from backend if not found in localStorage
 
 ### Modify
-- Add Instructions tab to the sidebar navigation (icon: BookOpen or GraduationCap)
-- Add Instructions icon to the snackbar
+- `backend.did.js` — replace `IDL.Service({})` with full service definition matching `main.mo`
+- `backend.did.d.ts` — replace empty `_SERVICE` with typed interface matching all methods
+- `backend.ts` — add all method proxy implementations to `Backend` class
+- `AuthContext.tsx` — make `login` async, add backend fallback when user not found locally
+- `LoginModal.tsx` — already calls `login` with await; update error message and loading state
 
 ### Remove
-- Nothing
+- Nothing removed
 
 ## Implementation Plan
-1. Create `InstructionsPage.tsx` with three internal tab navigation (tab bar with 3 labeled tabs)
-2. Tab 1 - How to Trade: numbered steps, icons, tips for trading signals without loss
-3. Tab 2 - Signal Thresholds: confidence/probability/surety breakdown with color-coded threshold cards showing green (safe), amber (caution), red (avoid) zones
-4. Tab 3 - Trading Rules: full ruleset cards with do/don't format
-5. Wire into sidebar nav and snackbar
-6. Match luxury design: navy/gold palette, glassmorphism cards, clean typography
+
+1. **Fix `backend.did.js`** — add full IDL factory matching `main.mo` methods:
+   - `saveUsers(Text) -> ()`
+   - `getUsers() -> (Text)` query
+   - `saveTrackedTrades(Text, Text) -> ()`
+   - `getTrackedTrades(Text) -> (Text)` query
+   - `saveAILearning(Text) -> ()`
+   - `getAILearning() -> (Text)` query
+   - `saveCoinProfiles(Text) -> ()`
+   - `getCoinProfiles() -> (Text)` query
+   - `saveAISkillLog(Text) -> ()`
+   - `getAISkillLog() -> (Text)` query
+   - `saveAIParamHistory(Text) -> ()`
+   - `getAIParamHistory() -> (Text)` query
+   - `saveAIRewriteLog(Text) -> ()`
+   - `getAIRewriteLog() -> (Text)` query
+   - `recordGlobalOutcome(Text) -> ()`
+   - `getGlobalStats() -> (Text)` query
+   - `transform(TransformArgs) -> (HttpResponsePayload)` query
+   - `getBingXSymbols() -> (Text)`
+   - `getCoinGeckoPage(Nat) -> (Text)`
+
+2. **Fix `backend.did.d.ts`** — add proper `_SERVICE` interface with `ActorMethod` types for all methods.
+
+3. **Fix `backend.ts`** — add `async` method proxy implementations to `Backend` class for all methods in `backendInterface`. Each method calls `(this.actor as any).methodName(args)` wrapped in try/catch with `processError`.
+
+4. **Fix `AuthContext.tsx`** — make `login` async:
+   - Try to find user in current localStorage users
+   - If not found: explicitly call `loadUsersFromBackend()` to force fresh sync, then try again
+   - Add `usersLoading` state (true while initial backend sync is in progress)
+   - Expose `usersLoading` so login button can show 'Loading accounts...' while syncing
+
+5. **Fix `LoginModal.tsx`** — show loading state when `usersLoading` is true ("Syncing accounts..." message)
