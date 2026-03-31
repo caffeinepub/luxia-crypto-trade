@@ -7,7 +7,11 @@ import { motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
-import { loadGlobalStats } from "../services/backendStorage";
+import {
+  loadGlobalStats,
+  loadUsersFromBackend,
+  saveUsersToBackend,
+} from "../services/backendStorage";
 
 type AdminTab = "home" | "users" | "posts" | "ai";
 
@@ -108,7 +112,26 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    setUsers(getUsers());
+    // Load users from backend first (so admin sees all users across devices)
+    loadUsersFromBackend().then((backendRaw) => {
+      if (backendRaw) {
+        try {
+          const backendUsers = JSON.parse(backendRaw);
+          if (Array.isArray(backendUsers) && backendUsers.length > 0) {
+            const localUsers = getUsers();
+            const merged = [...backendUsers];
+            for (const lu of localUsers) {
+              if (!merged.find((bu: StoredUser) => bu.uid === lu.uid))
+                merged.push(lu);
+            }
+            localStorage.setItem("luxia_users", JSON.stringify(merged));
+            setUsers(merged);
+            return;
+          }
+        } catch {}
+      }
+      setUsers(getUsers());
+    });
     setPosts(getPosts());
     refreshAI();
     setGuestCount(Number(localStorage.getItem("luxia_guest_count") || "0"));
@@ -144,6 +167,8 @@ export default function AdminPage() {
     const updated = [...existing, newUser];
     localStorage.setItem("luxia_users", JSON.stringify(updated));
     setUsers(updated);
+    // Sync to backend so user can login from any device
+    saveUsersToBackend(JSON.stringify(updated));
     setNewUsername("");
     setNewPassword("");
     setNewCredits(100);
@@ -155,6 +180,8 @@ export default function AdminPage() {
     const updated = getUsers().filter((u) => u.uid !== uid);
     localStorage.setItem("luxia_users", JSON.stringify(updated));
     setUsers(updated);
+    // Sync to backend
+    saveUsersToBackend(JSON.stringify(updated));
     toast.success("User deleted");
   }
 

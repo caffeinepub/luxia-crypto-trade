@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { saveUsersToBackend } from "../services/backendStorage";
 import { useAuth } from "./AuthContext";
 
 interface CreditContextValue {
@@ -42,6 +43,8 @@ function setUserCreditsInStorage(uid: string, credits: number) {
     if (idx !== -1) {
       users[idx] = { ...users[idx], credits };
       localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      // Sync to backend so credit balance is accurate on all devices
+      saveUsersToBackend(JSON.stringify(users));
     }
     // Also update session
     const session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
