@@ -429,6 +429,55 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
           )}
         </div>
 
+        {/* AI Badge */}
+        {signal.aiEnriched && signal.aiRating && signal.aiRating !== "Skip" && (
+          <div className="px-4 pb-2">
+            <div
+              className="w-full rounded-xl px-3 py-1.5 flex items-center justify-between"
+              style={{
+                background:
+                  signal.aiRating === "Strong Buy"
+                    ? "rgba(22,163,74,0.10)"
+                    : signal.aiRating === "Buy"
+                      ? "rgba(37,99,235,0.08)"
+                      : "rgba(201,168,76,0.10)",
+                border:
+                  signal.aiRating === "Strong Buy"
+                    ? "1px solid rgba(22,163,74,0.35)"
+                    : signal.aiRating === "Buy"
+                      ? "1px solid rgba(37,99,235,0.25)"
+                      : "1px solid rgba(201,168,76,0.35)",
+              }}
+            >
+              <span
+                className="font-bold text-xs flex items-center gap-1"
+                style={{
+                  color:
+                    signal.aiRating === "Strong Buy"
+                      ? "#15803d"
+                      : signal.aiRating === "Buy"
+                        ? "#1d4ed8"
+                        : "#92700d",
+                }}
+              >
+                {signal.guaranteedHit
+                  ? "🤖 AI STRONG BUY ✓"
+                  : `🤖 AI: ${signal.aiRating}`}
+              </span>
+              {signal.aiConfidence !== undefined && (
+                <span className="text-[10px] text-gray-500 font-medium">
+                  {signal.aiConfidence}% AI conf
+                </span>
+              )}
+            </div>
+            {signal.aiReason && (
+              <p className="text-[10px] text-gray-400 italic mt-1 px-1 leading-relaxed">
+                {signal.aiReason}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Progress Bars */}
         <div className="px-4 pb-3 space-y-2">
           <div>

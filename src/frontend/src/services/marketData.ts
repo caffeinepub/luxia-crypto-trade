@@ -31,7 +31,6 @@ async function fetchPage(page: number, retries = 3): Promise<CoinData[]> {
       clearTimeout(timeout);
 
       if (res.status === 429) {
-        // Rate limited — wait and retry
         await sleep(attempt * 2000);
         continue;
       }
@@ -78,7 +77,7 @@ async function fetchPage(page: number, retries = 3): Promise<CoinData[]> {
 export async function fetchMarketCoins(
   onProgress?: (loaded: number) => void,
 ): Promise<CoinData[]> {
-  const MAX_PAGES = 20; // 20 × 250 = up to 5,000 coins
+  const MAX_PAGES = 20;
   const allCoins: CoinData[] = [];
   const seenSymbols = new Set<string>();
   let emptyPages = 0;
@@ -88,7 +87,7 @@ export async function fetchMarketCoins(
 
     if (pageCoins.length === 0) {
       emptyPages++;
-      if (emptyPages >= 2) break; // two consecutive empty pages = done
+      if (emptyPages >= 2) break;
       await sleep(1500);
       continue;
     }
@@ -103,9 +102,39 @@ export async function fetchMarketCoins(
 
     if (onProgress) onProgress(allCoins.length);
 
-    // Respect CoinGecko free-tier rate limit: ~1.5 req/sec
     if (page < MAX_PAGES) await sleep(700);
   }
 
   return allCoins;
+}
+
+/**
+ * Fetch real 24h OHLCV candles from CoinGecko for a given coinId.
+ * Returns null on failure so callers can gracefully fall back to synthetic data.
+ */
+export async function fetchRealOHLCV(coinId: string): Promise<Array<{
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}> | null> {
+  try {
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=1`,
+      { signal: AbortSignal.timeout(6000) },
+    );
+    if (!res.ok) return null;
+    const data: number[][] = await res.json();
+    if (!Array.isArray(data) || data.length < 5) return null;
+    return data.map((c) => ({
+      open: c[1],
+      high: c[2],
+      low: c[3],
+      close: c[4],
+      volume: 0,
+    }));
+  } catch {
+    return null;
+  }
 }

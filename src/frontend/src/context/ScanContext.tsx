@@ -9,12 +9,17 @@ import {
 import { toast } from "sonner";
 import { recordOutcome } from "../services/aiLearning";
 import { fetchMarketCoins } from "../services/marketData";
-import { type Signal, generateSignals } from "../services/signalEngine";
+import {
+  type Signal,
+  enrichSignalsWithAI,
+  generateSignals,
+} from "../services/signalEngine";
 import { useCredits } from "./CreditContext";
 
 interface ScanContextValue {
   signals: Signal[];
   scanning: boolean;
+  aiEnriching: boolean;
   progress: { scanned: number; total: number };
   totalSessionScans: number;
   rescan: () => void;
@@ -27,6 +32,7 @@ const ScanContext = createContext<ScanContextValue | null>(null);
 export function ScanProvider({ children }: { children: React.ReactNode }) {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [aiEnriching, setAiEnriching] = useState(false);
   const [progress, setProgress] = useState({ scanned: 0, total: 5000 });
   const [totalSessionScans, setTotalSessionScans] = useState(0);
   const [lastScan, setLastScan] = useState<Date | null>(null);
@@ -54,6 +60,7 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
 
     scanningRef.current = true;
     setScanning(true);
+    setAiEnriching(false);
     setProgress({ scanned: 0, total: 5000 });
 
     try {
@@ -69,20 +76,44 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
       }
 
       const generated = generateSignals(coins);
-      setSignals(generated);
       setProgress({ scanned: coins.length, total: coins.length });
-      setLastScan(new Date());
-      setTotalSessionScans((prev) => prev + 1);
+
+      // Show preliminary signals immediately so UI isn't blank
+      setSignals(generated);
+      setScanning(false);
 
       if (generated.length === 0) {
         toast.info(
           `Scanned ${coins.length} coins — no signals passed filters this hour. Rescanning shortly.`,
         );
-      } else {
-        toast.success(
-          `Found ${generated.length} signals from ${coins.length} coins scanned!`,
-        );
+        setLastScan(new Date());
+        setTotalSessionScans((prev) => prev + 1);
+        return;
       }
+
+      toast.success(
+        `Found ${generated.length} signals from ${coins.length} coins — AI validating...`,
+      );
+
+      // Phase 2: AI enrichment
+      setAiEnriching(true);
+      try {
+        const enriched = await enrichSignalsWithAI(generated);
+        setSignals(enriched);
+        const aiCount = enriched.filter((s) => s.aiEnriched).length;
+        const skipped = generated.length - enriched.length;
+        toast.success(
+          `🤖 AI validated ${aiCount} signals${skipped > 0 ? `, filtered ${skipped} weak signals` : ""}`,
+        );
+      } catch {
+        // Keep un-enriched signals if AI fails
+        toast.info("AI enrichment unavailable — showing technical signals");
+      } finally {
+        setAiEnriching(false);
+      }
+
+      setLastScan(new Date());
+      setTotalSessionScans((prev) => prev + 1);
     } catch (err) {
       console.error("Scan error:", err);
       toast.error("Scan failed. Retrying...");
@@ -92,7 +123,6 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
     }
   }, [spendCredit]);
 
-  // Store rescan in a ref so the mount effect doesn't re-run on every render
   const rescanRef = useRef(rescan);
   rescanRef.current = rescan;
   useEffect(() => {
@@ -188,6 +218,7 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
       value={{
         signals,
         scanning,
+        aiEnriching,
         progress,
         totalSessionScans,
         rescan,

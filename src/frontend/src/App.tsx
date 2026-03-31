@@ -100,23 +100,29 @@ function statusColor(status: string): string {
 }
 
 function RescanButton() {
-  const { scanning, progress, rescan, totalSessionScans } = useScan();
+  const { scanning, aiEnriching, progress, rescan, totalSessionScans } =
+    useScan();
+  const isBusy = scanning || aiEnriching;
   return (
     <button
       type="button"
       data-ocid="nav.rescan.button"
       onClick={rescan}
-      disabled={scanning}
+      disabled={isBusy}
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold tracking-wide transition-all border ${
         scanning
           ? "bg-amber-50 border-amber-300 text-amber-700 cursor-not-allowed"
-          : "bg-[#0A1628] border-[#0A1628] text-white hover:bg-[#0A1628]/80"
+          : aiEnriching
+            ? "bg-purple-50 border-purple-300 text-purple-700 cursor-not-allowed"
+            : "bg-[#0A1628] border-[#0A1628] text-white hover:bg-[#0A1628]/80"
       }`}
     >
-      <RefreshCw size={12} className={scanning ? "animate-spin" : ""} />
+      <RefreshCw size={12} className={isBusy ? "animate-spin" : ""} />
       {scanning
         ? `${progress.scanned}/${progress.total}`
-        : `Rescan${totalSessionScans > 0 ? ` (${totalSessionScans})` : ""}`}
+        : aiEnriching
+          ? "🤖 AI Validating..."
+          : `Rescan${totalSessionScans > 0 ? ` (${totalSessionScans})` : ""}`}
     </button>
   );
 }

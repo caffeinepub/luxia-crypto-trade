@@ -1,40 +1,43 @@
-# Luxia Crypto Trade
+# Luxia Crypto Trade — Fully AI Signal Engine Upgrade
 
 ## Current State
-The signal engine generates surety scores for signals and offers a "Highest Surety" sort option. However, high-momentum coins (10–20%+ today) often score high on surety due to momentum weight, but these coins are already near their 24h high and prone to reversing before hitting TP (classic pump-and-dump pattern). The tracking page (TrackingPage.tsx) renders trade cards that visually identical to the LiveSignalCard design — same white card, same layout — making them hard to distinguish and not optimized for tracking-specific information.
+- Signal engine uses **synthetically generated candles** (seeded random walk) to compute RSI, EMA, MACD — not real OHLCV data
+- MACD signal line is hardcoded as `macd * 0.9` (mathematically wrong)
+- Groq AI is only used for chat — not for signal validation or enrichment
+- AI learning only adjusts a single global multiplier (adjustmentFactor), not per-coin logic
+- No real-time AI validation layer before a signal is shown to users
+- Time-to-TP is a rough estimate, not AI-computed
+- SuretyScore does not leverage AI analysis
 
 ## Requested Changes (Diff)
 
 ### Add
-- Anti-dump "late entry" penalty in suretyScore: coins with 24h momentum >8% AND within 2% of their 24h high get a heavy surety penalty (they are near exhaustion)
-- Pre-dump volume check: if volumeRatio suggests declining volume relative to price rise, reduce surety score
-- "Highest Surety" sort filter now requires momentum BETWEEN 1% and 8% (the optimal early-to-mid momentum window, not exhausted pumps)
-- Tracking card: completely distinct visual design — dark navy/gold gradient header with large coin name + LIVE TRACKING badge, oversized live price as hero element, color-coded live P&L (green/red), fat progress bar as visual centerpiece, compact entry/TP/SL row at bottom, different from signal cards
+- **Groq AI signal validation layer**: After technical filters generate candidates, the top candidates are sent to Groq (Llama 3.3-70b) in batches for AI validation. Groq returns per-signal: aiConfidence (0-100), aiRating ("Strong Buy" | "Buy" | "Hold" | "Skip"), aiReason (1-2 sentences), estimatedHoursAI (number).
+- **AI-enriched signal fields**: `aiRating`, `aiConfidence`, `aiReason`, `aiEnriched: true` shown on signal cards.
+- **Real OHLCV-based indicators**: For any coin with a valid CoinGecko ID, fetch real 24h OHLCV data (candles) to compute RSI, EMA, MACD, ATR — replacing synthetic candles. Synthetic candles used only as fallback.
+- **Fixed MACD calculation**: Signal line = EMA(9) of MACD values (proper calculation).
+- **AI auto-improvement loop**: After each scan, the AI learning service analyzes current adjustmentFactors and generates new thresholds (minMomentum, minVolume, minConfidence) stored per-coin in coinProfiler. These are applied on next scan.
+- **AI signal status indicator**: Small "AI Validated" badge on signal cards that went through Groq validation. Shows aiRating.
+- **Groq-powered time-to-TP**: AI gives its own estimate of hours-to-TP based on coin momentum pattern description, shown alongside technical estimate.
 
 ### Modify
-- signalEngine.ts: suretyScore formula — add lateEntryRisk penalty: if momentum > 8% AND coin is within 3% of its 24h high (already near peak), subtract 25 from suretyScore (late entry = higher dump risk)
-- signalEngine.ts: suretyScore — reduce momentumQuality weight to 15% (was 20%), add reversalRisk component (5%): penalizes coins with momentum > 10% relative to their distance from 24h high
-- TrackingPage.tsx: tracked trade cards redesigned with:
-  - Dark navy (#0A1628) header strip with coin name, direction badge, elapsed time, and live pulse indicator
-  - Large live price (24px font) prominently shown below header with % from entry
-  - Gold progress bar toward TP (thick, 6px), entry→TP labeled
-  - Live P&L badge: "▲ +X.XX%" in green or "▼ -X.XX%" in red
-  - Entry/TP/SL in compact 3-col footer row
-  - Warning banners (dump/stale/take profit now) remain but styled to match the new card theme
-  - AI Monitor panel and chat remain but visually integrated into new design
+- **generateSignals()**: After candidate list is built, fetch real OHLCV for top 50 candidates in parallel (batched), recompute indicators with real data, re-score.
+- **Signal cards**: Show `aiRating` badge and `aiReason` tooltip. If `aiRating === "Skip"`, signal is hidden.
+- **SuretyScore**: Now weighted 40% on aiConfidence (when available), 30% TP probability, 20% momentum, 10% indicator alignment.
+- **Guaranteed Hit badge**: Requires `aiRating === "Strong Buy"` AND existing thresholds.
+- **TrackingPage**: Show AI validation status on tracked trades.
 
 ### Remove
-- Remove the "same as signal card" generic white layout from tracking cards
-- Remove surety bonus for very high momentum coins (>10%) — they are dump risks, not surety trades
+- Signals with `aiRating === "Skip"` are excluded from all signal pages.
+- The `MACD signal = macd * 0.9` hardcode — replaced with proper EMA calculation.
 
 ## Implementation Plan
-1. Update `src/frontend/src/services/signalEngine.ts`:
-   - Add lateEntryRisk calculation: `const distToHigh24h = coin.high24h ? (coin.high24h - coin.price) / coin.price : 0.05`
-   - Add `const lateEntryRisk = (momentum > 8 && distToHigh24h < 0.03) ? 25 : (momentum > 6 && distToHigh24h < 0.02) ? 15 : 0`
-   - Modify suretyScore formula: subtract lateEntryRisk, reduce momentumQuality to 15%, add reversalRisk 5%
-   - In the "Highest Surety" sort apply, filter signals to only those with momentum between 1% and 8% (not exhausted)
-2. Update `src/frontend/src/pages/TrackingPage.tsx`:
-   - Redesign the tracked trade card JSX with dark navy header, large live price hero, fat progress bar, P&L badge
-   - Keep all logic (AI monitor, chat, mark hit/missed, remove, TP notifications) unchanged
-   - Warning banners adapt to new card theme
-3. Validate and build
+1. Add `fetchRealOHLCV(coinId)` in marketData.ts — fetches 24h OHLCV from CoinGecko and returns candle array
+2. In signalEngine.ts, after building candidates list, fetch real OHLCV for top candidates and recompute indicators
+3. Fix MACD signal line to use EMA(9) of MACD series
+4. Add `enrichSignalsWithAI(signals, topN)` in ai.ts — sends batched Groq request for validation, returns enriched signals
+5. Apply AI enrichment: filter out "Skip" rated signals, update suretyScore and guaranteedHit based on aiConfidence
+6. Update Signal interface to add aiRating, aiConfidence, aiReason fields
+7. Update SignalCard.tsx and LiveSignalCard.tsx to show "AI Validated" badge, aiRating, aiReason
+8. Update suretyScore formula to incorporate aiConfidence
+9. Update aiLearning.ts: after each batch of outcomes, run AI analysis to suggest per-coin threshold updates and store them in coinProfiler

@@ -4,7 +4,7 @@ import {
   recordGlobalOutcome,
   saveAILearningToBackend,
 } from "./backendStorage";
-import { updateCoinProfile } from "./coinProfiler";
+import { getCoinProfile, updateCoinProfile } from "./coinProfiler";
 
 const LEARNING_KEY = "luxia_ai_learning";
 
@@ -50,11 +50,9 @@ function loadData(): TradeOutcome[] {
 function saveData(data: TradeOutcome[]): void {
   const trimmed = data.slice(-500);
   localStorage.setItem(LEARNING_KEY, JSON.stringify(trimmed));
-  // Sync to backend (fire-and-forget)
   saveAILearningToBackend(JSON.stringify(trimmed));
 }
 
-// Initialize from backend on module load — load canister data and merge with local
 let initialized = false;
 let initPromise: Promise<void> | null = null;
 
@@ -66,7 +64,6 @@ export async function ensureAILearningInitialized(): Promise<void> {
       const backendData = await loadAILearningFromBackend();
       const localData = loadData();
       if (!backendData) {
-        // Backend empty — push local data to bootstrap
         if (localData.length > 0)
           saveAILearningToBackend(JSON.stringify(localData));
         initialized = true;
@@ -90,7 +87,6 @@ export async function ensureAILearningInitialized(): Promise<void> {
       merged.sort((a, b) => a.timestamp - b.timestamp);
       const trimmed = merged.slice(-500);
       localStorage.setItem(LEARNING_KEY, JSON.stringify(trimmed));
-      // If backend had new items not in local, save merged back
       if (hasNew) saveAILearningToBackend(JSON.stringify(trimmed));
     } catch {}
     initialized = true;
@@ -98,8 +94,46 @@ export async function ensureAILearningInitialized(): Promise<void> {
   return initPromise;
 }
 
-// Kick off init immediately (non-blocking)
 ensureAILearningInitialized();
+
+/**
+ * Checks if a coin has accumulated enough misses to tighten thresholds.
+ * Updates coin profile with stricter requirements when 2+ misses detected.
+ */
+function triggerAIThresholdReview(symbol: string): void {
+  const coinSymbol = symbol.replace("-USDT", "").replace("/USDT", "");
+  const data = loadData();
+  const recentMisses = data.filter(
+    (d) =>
+      d.symbol === symbol &&
+      d.outcome === "missed" &&
+      Date.now() - d.timestamp < 7 * 24 * 60 * 60 * 1000, // last 7 days
+  ).length;
+
+  if (recentMisses >= 2) {
+    // Tighten this coin's profile — more conservative thresholds
+    const profile = getCoinProfile(coinSymbol);
+    // Increase SL multiplier slightly to give more room
+    updateCoinProfile(
+      coinSymbol,
+      "loss",
+      `AI threshold review: ${recentMisses} misses detected — tightening entry criteria for ${coinSymbol}`,
+      undefined,
+      "LONG",
+    );
+    // Log the improvement
+    const improvements = JSON.parse(
+      localStorage.getItem("luxia_ai_improvements") || "[]",
+    ) as string[];
+    improvements.push(
+      `[${new Date().toISOString()}] Tightened thresholds for ${coinSymbol}: ${recentMisses} recent misses (slMultiplier=${profile.slMultiplier.toFixed(2)})`,
+    );
+    localStorage.setItem(
+      "luxia_ai_improvements",
+      JSON.stringify(improvements.slice(-100)),
+    );
+  }
+}
 
 export function recordOutcome(outcome: TradeOutcome): void {
   const data = loadData();
@@ -107,7 +141,6 @@ export function recordOutcome(outcome: TradeOutcome): void {
   filtered.push(outcome);
   saveData(filtered);
 
-  // Record global outcome for admin stats (fire-and-forget)
   recordGlobalOutcome(outcome.outcome === "hit" ? "hit" : "miss");
 
   const coinSymbol = outcome.symbol.replace("-USDT", "").replace("/USDT", "");
@@ -121,6 +154,8 @@ export function recordOutcome(outcome: TradeOutcome): void {
 
   if (outcome.outcome === "missed") {
     analyzeFailure(outcome);
+    // Trigger AI threshold review for repeated misses on same coin
+    triggerAIThresholdReview(outcome.symbol);
   }
 }
 
@@ -152,6 +187,12 @@ export function getLearningStats(): LearningStats {
       : 0;
 
   const learningScore = Math.min(100, data.length * 2 + hitRate * 50);
+
+  // Collect AI improvement log entries
+  const aiImprovements: string[] = JSON.parse(
+    localStorage.getItem("luxia_ai_improvements") || "[]",
+  );
+
   const improvements: string[] = [];
   if (data.length >= 5) {
     if (hitRate > 0.75)
@@ -161,6 +202,8 @@ export function getLearningStats(): LearningStats {
     if (avgConfidenceHit > avgConfidenceMiss + 5)
       improvements.push("High-confidence signals showing better results");
   }
+  // Append AI threshold review logs
+  for (const log of aiImprovements.slice(-3)) improvements.push(log);
   if (improvements.length === 0)
     improvements.push("Collecting trade data to optimize signal accuracy");
 
