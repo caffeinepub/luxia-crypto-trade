@@ -153,7 +153,7 @@ function formatEstimatedTime(hours: number): string {
 }
 
 /**
- * LUXIA SIGNAL ENGINE v9 — HIGH SURETY + MOMENTUM TP
+ * LUXIA SIGNAL ENGINE v10 — HIGH SURETY + ANTI-DUMP + MOMENTUM TP
  *
  * Core principles:
  *  1. Every signal must have a wide SL so volatility can't knock it out
@@ -162,6 +162,7 @@ function formatEstimatedTime(hours: number): string {
  *     win probability, indicator alignment, confidence, and momentum quality
  *  4. Only signals with 72%+ geometric win probability pass through
  *  5. GUARANTEED HIT: 80%+ TP hit prob + 88%+ confidence + MACD + EMA confirmed
+ *  6. Late-entry penalty: coins already near 24h high after big pump are penalized
  */
 export function generateSignals(coins: CoinData[]): Signal[] {
   const hourSeed = Math.floor(Date.now() / 3600000);
@@ -272,6 +273,19 @@ export function generateSignals(coins: CoinData[]): Signal[] {
 
     tpPct = Math.max(tpPct, 0.005);
 
+    // Late entry risk: coin has already pumped hard and is near its peak
+    const distToHigh24h = coin.high24h
+      ? (coin.high24h - coin.price) / coin.price
+      : 0.05;
+    const lateEntryRisk =
+      momentum > 10 && distToHigh24h < 0.04
+        ? 30
+        : momentum > 8 && distToHigh24h < 0.03
+          ? 20
+          : momentum > 6 && distToHigh24h < 0.02
+            ? 10
+            : 0;
+
     // ============================================================
     // SL: Wide to survive volatility — key to high win rate
     // Minimum ratio: SL must be 2.8× TP for ~74% geometric win prob
@@ -358,17 +372,48 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       indicatorsAligned >= 5;
 
     // ============================================================
-    // SURETY SCORE (0-100)
-    // Measures how certain this trade is to hit TP.
-    // Weights: TP probability 45%, confidence 30%, indicator alignment 15%, momentum quality 10%
+    // SURETY SCORE v2 (0-100) — Anti-Dump Edition
+    // Measures how certain this trade is to ACTUALLY hit TP in real market conditions.
+    // Key insight: coins that have already pumped hard (near 24h high) often reverse.
+    // Weights v2:
+    //   TP probability (geometric)  30% — distance math
+    //   Confidence                  25% — indicator quality
+    //   Momentum quality            15% — coin must be actively rising (reduced: over-rewarded pumps)
+    //   Indicator alignment         10% — 6-indicator check
+    //   Time score                  10% — faster TP = less chance of reversal
+    //   TP proximity score           5% — smaller TP target = more achievable
+    //   Reversal risk penalty        5% — penalise exhausted pumps near 24h high
+    //   Late entry penalty          direct subtraction (0–30 pts)
     // ============================================================
     const indicatorAlignmentPct = (indicatorsAligned / 6) * 100;
     const momentumQuality = Math.min(100, momentum * 5); // 0–20% momentum maps to 0–100
+    // Time score: faster to TP = higher surety (less time for market to reverse)
+    const timeScore = Math.max(0, 100 - (estimatedHours / 12) * 100);
+    // TP proximity: small TP distance = more achievable (e.g. 1% TP scores 85, 6% TP scores 10)
+    const tpProximityScore = Math.max(0, 100 - tpPct * 1500);
+    // Proven resistance bonus: if TP is capped at 24h high, it's been touched today
+    const provenResistanceBonus = tpSource.includes("24h") ? 10 : 0;
+    // Reversal risk: coins that pumped hard and are close to 24h high will likely dump
+    const reversalRisk = Math.min(
+      100,
+      (momentum > 8 ? (momentum - 8) * 5 : 0) + (distToHigh24h < 0.02 ? 20 : 0),
+    );
     const suretyScore = Math.round(
-      tpProbabilityPct * 0.45 +
-        confidence * 0.3 +
-        indicatorAlignmentPct * 0.15 +
-        momentumQuality * 0.1,
+      Math.min(
+        100,
+        Math.max(
+          0,
+          tpProbabilityPct * 0.3 +
+            confidence * 0.25 +
+            momentumQuality * 0.15 +
+            indicatorAlignmentPct * 0.1 +
+            timeScore * 0.1 +
+            tpProximityScore * 0.05 +
+            (100 - reversalRisk) * 0.05 +
+            provenResistanceBonus -
+            lateEntryRisk,
+        ),
+      ),
     );
 
     seenSymbols.add(coin.symbol);

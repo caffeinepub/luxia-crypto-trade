@@ -30,7 +30,7 @@ const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
   {
     key: "surety",
     label: "🎯 Highest Surety (Will Hit TP)",
-    desc: "Most certain to hit TP — TP prob + confidence + indicator alignment",
+    desc: "Most certain to hit TP — optimal momentum window (not exhausted pumps)",
   },
   {
     key: "profit",
@@ -69,8 +69,23 @@ function compositeScore(s: Signal) {
 function sortSignals(signals: Signal[], key: SortKey): Signal[] {
   const arr = signals.slice();
   switch (key) {
-    case "surety":
-      return arr.sort((a, b) => (b.suretyScore ?? 0) - (a.suretyScore ?? 0));
+    case "surety": {
+      // For Highest Surety sort: only surface coins in the optimal momentum window.
+      // Coins that have pumped 10%+ are near their 24h high and likely to dump before TP.
+      // Coins below 1% momentum are flat and move too slowly.
+      // Optimal window: 1% <= momentum <= 9% — actively rising but not exhausted.
+      const suretyFiltered = arr.filter(
+        (s) =>
+          s.estimatedHours <= 12 && // must hit TP within 12h (less reversal risk)
+          s.confidence >= 82 && // strong indicator confidence
+          s.tpProbability >= 77 && // high geometric probability
+          s.momentum >= 1 &&
+          s.momentum <= 9, // optimal momentum window: not exhausted pump, not flat
+      );
+      // Fall back to full set if filter yields < 3 results
+      const source = suretyFiltered.length >= 3 ? suretyFiltered : arr;
+      return source.sort((a, b) => (b.suretyScore ?? 0) - (a.suretyScore ?? 0));
+    }
     case "profit":
       return arr.sort((a, b) => profitPct(b) - profitPct(a));
     case "confidence":
@@ -226,7 +241,7 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
             )}
             {sortKey === "surety" && (
               <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full font-medium text-xs border border-emerald-200">
-                🎯 Ranked by surety — highest chance to hit TP first
+                🎯 Optimal momentum window (1–9%) — lowest dump risk
               </span>
             )}
 

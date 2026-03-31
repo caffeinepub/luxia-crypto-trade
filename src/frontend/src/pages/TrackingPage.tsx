@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -579,13 +578,17 @@ export default function TrackingPage() {
                 const nearTp = progressPct >= 70 && !tpReached;
                 const elapsed =
                   Date.now() - (trade.trackedAt ?? trade.timestamp);
-                // Fix 3: Stale trade detection (open 24h+)
                 const isStale = elapsed > 86400000 && !trade.outcome;
                 const aiText = aiMonitoring[trade.id];
                 const isAiLoading = aiLoading[trade.id];
                 const lastMonitorTime = aiMonitorTime[trade.id];
                 const isChatOpen = chatOpen[trade.id];
                 const msgs = chatMessages[trade.id] || [];
+
+                // SL distance from current price (as % of entry)
+                const slDistance = isLong
+                  ? ((currentPrice - trade.stopLoss) / trade.entryPrice) * 100
+                  : ((trade.stopLoss - currentPrice) / trade.entryPrice) * 100;
 
                 return (
                   <motion.div
@@ -597,11 +600,19 @@ export default function TrackingPage() {
                     onClick={() => openModal(trade)}
                     onKeyDown={(e) => e.key === "Enter" && openModal(trade)}
                     tabIndex={0}
-                    className="bg-white border border-gray-300 shadow-md rounded-2xl w-full cursor-pointer hover:shadow-lg transition-shadow"
+                    className={`bg-white rounded-2xl w-full cursor-pointer hover:shadow-xl transition-all overflow-hidden ${
+                      trade.outcome === "hit"
+                        ? "border-2 border-green-400 shadow-md"
+                        : trade.outcome === "missed"
+                          ? "border-2 border-red-400 shadow-md"
+                          : isStale
+                            ? "border-2 border-amber-400 shadow-md"
+                            : "border-2 border-[#0A1628]/20 shadow-lg"
+                    }`}
                   >
-                    {/* Fix 3: Stale trade badge */}
+                    {/* ── Status banners ── */}
                     {isStale && (
-                      <div className="border-b border-amber-200 bg-amber-50 rounded-t-2xl px-4 py-1.5 flex items-center gap-1.5">
+                      <div className="bg-amber-50 border-b border-amber-200 px-4 py-1.5 flex items-center gap-1.5">
                         <span className="text-amber-500 text-xs">⏰</span>
                         <span className="text-amber-600 text-[11px] font-medium">
                           Trade open 24h+ — check manually
@@ -609,27 +620,21 @@ export default function TrackingPage() {
                       </div>
                     )}
                     {tpReached && !trade.outcome && (
-                      <div
-                        className={`${isStale ? "" : "rounded-t-2xl"} bg-green-500 p-3 text-center animate-pulse`}
-                      >
+                      <div className="bg-green-500 p-3 text-center animate-pulse">
                         <div className="text-white font-bold text-sm">
                           🎯 PROFIT TAKEN +{profitPct.toFixed(1)}% Achieved
                         </div>
                       </div>
                     )}
                     {earlyDumpRisk && !dumpWarning && (
-                      <div
-                        className={`${isStale ? "" : "rounded-t-2xl"} bg-orange-400 p-2 text-center`}
-                      >
+                      <div className="bg-orange-400 p-2 text-center">
                         <div className="text-white text-xs font-semibold">
                           ⚠️ Caution — Momentum Weakening. Monitor closely.
                         </div>
                       </div>
                     )}
                     {dumpWarning && !tpReached && (
-                      <div
-                        className={`${isStale ? "" : "rounded-t-2xl"} bg-red-500 p-2 text-center`}
-                      >
+                      <div className="bg-red-500 p-2 text-center">
                         <div className="text-white text-xs font-semibold">
                           ⚠️ Dump Warning — Safe Exit: {formatPrice(safeExit)}
                         </div>
@@ -653,112 +658,196 @@ export default function TrackingPage() {
                       </div>
                     )}
 
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <div className="font-bold text-[#0A1628] text-base">
+                    {/* ── Dark Navy Header ── */}
+                    <div className="relative bg-[#0A1628] px-4 py-3 overflow-hidden">
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#C9A84C]/5 to-[#C9A84C]/15 pointer-events-none" />
+                      <div className="relative flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-white font-bold text-base leading-tight">
                             {trade.symbol}
-                          </div>
-                          <div className="text-[#0A1628]/40 text-xs">
-                            {formatElapsed(elapsed)} ago
-                          </div>
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              isLong
+                                ? "bg-green-500/20 text-green-400 border border-green-500/40"
+                                : "bg-red-500/20 text-red-400 border border-red-500/40"
+                            }`}
+                          >
+                            {trade.direction}
+                          </span>
+                          <span className="text-gray-400 text-[10px]">
+                            {formatElapsed(elapsed)}
+                          </span>
                         </div>
-                        <span
-                          className={`text-xs font-bold px-2 py-1 rounded-full ${
-                            isLong
-                              ? "bg-green-100 text-green-700"
-                              : "bg-red-100 text-red-600"
-                          }`}
-                        >
-                          {trade.direction}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                          <span className="text-[#C9A84C] text-[10px] font-bold">
+                            LIVE
+                          </span>
+                          <span className="text-gray-500 text-[9px]">
+                            [TRACKING]
+                          </span>
+                        </div>
                       </div>
+                    </div>
 
-                      <div className="grid grid-cols-2 gap-2 mb-3 text-sm">
-                        <div className="bg-gray-50 rounded-lg p-2">
-                          <div className="text-[10px] text-gray-400 uppercase">
-                            Entry
-                          </div>
-                          <div className="font-semibold text-[#0A1628]">
-                            {formatPrice(trade.entryPrice)}
-                          </div>
-                        </div>
-                        <div className="bg-gray-50 rounded-lg p-2">
-                          <div className="text-[10px] text-gray-400 uppercase">
-                            Current
-                          </div>
-                          <div
-                            className={`font-semibold ${
+                    {/* ── Live Price Hero ── */}
+                    <div className="bg-[#F8F9FA] px-4 pt-3 pb-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex flex-col">
+                          <span
+                            className={`text-2xl font-extrabold tracking-tight ${
                               profitPct >= 0 ? "text-green-600" : "text-red-500"
                             }`}
                           >
                             {formatPrice(currentPrice)}
+                          </span>
+                          <span
+                            className={`mt-1 inline-flex items-center text-xs font-bold px-2 py-0.5 rounded-full w-fit ${
+                              profitPct >= 0
+                                ? "bg-green-100 text-green-700"
+                                : "bg-red-100 text-red-600"
+                            }`}
+                          >
+                            {profitPct >= 0 ? "▲" : "▼"}&nbsp;
+                            {profitPct >= 0 ? "+" : ""}
+                            {profitPct.toFixed(2)}% from entry
+                          </span>
+                        </div>
+                        <div
+                          className="text-right shrink-0 py-1 px-2.5 rounded-xl text-xs font-bold"
+                          style={{
+                            background: "rgba(201,168,76,0.12)",
+                            border: "1px solid rgba(201,168,76,0.35)",
+                            color: "#92700D",
+                          }}
+                        >
+                          💰 +{tpProfitPct.toFixed(2)}%
+                          <div className="text-[9px] font-normal opacity-70 mt-0.5">
+                            if TP Hit
                           </div>
                         </div>
                       </div>
+                    </div>
 
-                      {/* TP Profit Badge */}
-                      <div
-                        className="w-full text-center py-1.5 rounded-xl font-bold text-sm mb-3"
-                        style={{
-                          background: "rgba(201,168,76,0.12)",
-                          border: "1px solid rgba(201,168,76,0.35)",
-                          color: "#92700D",
-                        }}
-                      >
-                        💰 +{tpProfitPct.toFixed(2)}% Profit if TP Hit
-                      </div>
-
-                      <div className="mb-3">
-                        <div className="flex justify-between text-xs text-gray-500 mb-1">
-                          <span>Progress to TP</span>
-                          <span
-                            className={
-                              profitPct >= 0 ? "text-green-600" : "text-red-500"
-                            }
-                          >
-                            {profitPct >= 0 ? "+" : ""}
-                            {profitPct.toFixed(2)}%
-                          </span>
-                        </div>
-                        <Progress value={progressPct} className="h-2" />
-                        <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-                          <span>{formatPrice(trade.entryPrice)}</span>
-                          <span>{formatPrice(trade.takeProfit)}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between text-xs mb-3">
+                    {/* ── Progress bar section ── */}
+                    <div className="px-4 pt-2 pb-3 bg-[#F8F9FA] border-b border-gray-100">
+                      <div className="flex justify-between text-xs mb-1.5">
+                        <span className="text-gray-500 font-medium">
+                          Progress to TP
+                        </span>
                         <span
-                          className={`px-2 py-0.5 rounded-full font-medium ${
-                            trade.strengthLabel === "Strong"
-                              ? "bg-green-50 text-green-700"
-                              : trade.strengthLabel === "Weakening"
-                                ? "bg-yellow-50 text-yellow-600"
-                                : "bg-red-50 text-red-600"
+                          className={`font-bold ${
+                            progressPct >= 70
+                              ? "text-green-600"
+                              : progressPct >= 0
+                                ? "text-[#C9A84C]"
+                                : "text-red-500"
                           }`}
                         >
-                          ● {trade.strengthLabel}
-                        </span>
-                        <span className="text-gray-400">
-                          Safe:{" "}
-                          <span className="text-amber-600 font-semibold">
-                            {formatPrice(safeExit)}
-                          </span>
+                          {progressPct.toFixed(1)}%
                         </span>
                       </div>
-
+                      {/* Gradient progress bar */}
+                      <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{
+                            width: `${Math.min(100, Math.max(0, progressPct))}%`,
+                            background:
+                              "linear-gradient(to right, #22c55e, #C9A84C)",
+                          }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                        <span>{formatPrice(trade.entryPrice)}</span>
+                        <span>{formatPrice(trade.takeProfit)}</span>
+                      </div>
                       {nearTp && (
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-center mb-3 animate-pulse">
-                          <span className="text-green-700 font-bold text-xs">
+                        <div className="mt-2 bg-green-500 rounded-lg p-1.5 text-center animate-pulse">
+                          <span className="text-white font-bold text-xs">
                             🚀 Take Profit Now!
                           </span>
                         </div>
                       )}
+                    </div>
 
-                      {/* AI Live Monitoring Panel */}
+                    {/* ── Status row ── */}
+                    <div className="px-4 py-2 flex items-center justify-between gap-1 text-xs border-b border-gray-100">
+                      <span
+                        className={`shrink-0 px-2 py-0.5 rounded-full font-semibold text-[11px] ${
+                          trade.strengthLabel === "Strong"
+                            ? "bg-green-50 text-green-700"
+                            : trade.strengthLabel === "Weakening"
+                              ? "bg-yellow-50 text-yellow-600"
+                              : "bg-red-50 text-red-600"
+                        }`}
+                      >
+                        ● {trade.strengthLabel}
+                      </span>
+                      <span className="text-gray-400 text-[10px] truncate">
+                        Exit:{" "}
+                        <span className="text-amber-600 font-semibold">
+                          {formatPrice(safeExit)}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-[10px] text-gray-400">
+                        SL:{" "}
+                        <span
+                          className={`font-semibold ${
+                            slDistance < 2
+                              ? "text-red-500"
+                              : slDistance < 5
+                                ? "text-orange-500"
+                                : "text-gray-500"
+                          }`}
+                        >
+                          -{slDistance.toFixed(1)}%
+                        </span>
+                      </span>
+                    </div>
+
+                    {/* ── Compact prices footer ── */}
+                    <div className="grid grid-cols-3 bg-gray-50 border-b border-gray-100 text-center">
+                      {(
+                        [
+                          {
+                            label: "Entry",
+                            val: trade.entryPrice,
+                            color: "text-[#0A1628]",
+                          },
+                          {
+                            label: "TP",
+                            val: trade.takeProfit,
+                            color: "text-green-600",
+                          },
+                          {
+                            label: "SL",
+                            val: trade.stopLoss,
+                            color: "text-red-500",
+                          },
+                        ] as const
+                      ).map(({ label, val, color }, idx) => (
+                        <div
+                          key={label}
+                          className={`py-2 ${
+                            idx < 2 ? "border-r border-gray-200" : ""
+                          }`}
+                        >
+                          <div className="text-[9px] text-gray-400 uppercase">
+                            {label}
+                          </div>
+                          <div className={`text-[11px] font-semibold ${color}`}>
+                            {formatPrice(val)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="p-3">
+                      {/* ── AI Monitor Panel ── */}
                       <div
-                        className="bg-gradient-to-r from-[#0A1628]/5 to-[#C9A84C]/5 border border-[#C9A84C]/20 rounded-xl p-3 mb-3"
+                        className="bg-gradient-to-r from-[#0A1628]/8 to-[#C9A84C]/8 border border-[#C9A84C]/25 rounded-xl p-3 mb-2"
                         onClick={(e) => e.stopPropagation()}
                         onKeyDown={(e) => e.stopPropagation()}
                       >
@@ -794,7 +883,7 @@ export default function TrackingPage() {
                         )}
                       </div>
 
-                      {/* AI Chat Toggle */}
+                      {/* ── AI Chat toggle ── */}
                       <div
                         onClick={(e) => e.stopPropagation()}
                         onKeyDown={(e) => e.stopPropagation()}
@@ -873,6 +962,7 @@ export default function TrackingPage() {
                         </AnimatePresence>
                       </div>
 
+                      {/* ── Action buttons ── */}
                       {tpReached && !trade.outcome ? (
                         <div
                           className="flex gap-2 mt-2"
