@@ -96,23 +96,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const [usersLoading, setUsersLoading] = useState(true);
 
-  // On mount: sync users from backend (backend is authoritative)
+  // On mount: sync users from backend (backend is authoritative for cross-device sync)
   useEffect(() => {
     loadUsersFromBackend()
       .then((backendRaw) => {
-        if (!backendRaw) return;
+        const localUsers = getUsers();
+
+        if (!backendRaw) {
+          // Backend has no data yet — push local users (including defaults) to bootstrap
+          saveUsersToBackend(JSON.stringify(localUsers));
+          return;
+        }
+
         try {
           const backendUsers: StoredUser[] = JSON.parse(backendRaw);
-          if (!Array.isArray(backendUsers) || backendUsers.length === 0) return;
-          // Merge: backend users take priority, preserve any locally added users not in backend
-          const localUsers = getUsers();
+          if (!Array.isArray(backendUsers) || backendUsers.length === 0) {
+            // Backend returned empty — push local users to bootstrap
+            saveUsersToBackend(JSON.stringify(localUsers));
+            return;
+          }
+
+          // Merge: backend users take priority, preserve any local users not yet on backend
           const merged = [...backendUsers];
+          let hasNewLocalUsers = false;
           for (const lu of localUsers) {
             if (!merged.find((bu) => bu.uid === lu.uid)) {
               merged.push(lu);
+              hasNewLocalUsers = true;
             }
           }
           localStorage.setItem(USERS_KEY, JSON.stringify(merged));
+
+          // Push merged list back to backend if we added local-only users
+          if (hasNewLocalUsers) {
+            saveUsersToBackend(JSON.stringify(merged));
+          }
         } catch {}
       })
       .finally(() => {
@@ -176,7 +194,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const users = getUsers();
     users.push(newUser);
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    // Sync to backend (fire-and-forget)
+    // Sync to backend
     saveUsersToBackend(JSON.stringify(users));
   };
 
@@ -190,7 +208,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (idx !== -1) {
         users[idx] = { ...users[idx], ...updates };
         localStorage.setItem(USERS_KEY, JSON.stringify(users));
-        // Sync to backend (fire-and-forget)
         saveUsersToBackend(JSON.stringify(users));
       }
     }
@@ -202,7 +219,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (idx === -1) return;
     users[idx] = { ...users[idx], credits };
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    // Sync to backend (fire-and-forget)
+    // Sync to backend so credit balance persists across devices
     saveUsersToBackend(JSON.stringify(users));
     if (user.uid === uid) {
       const updated = { ...user, credits };

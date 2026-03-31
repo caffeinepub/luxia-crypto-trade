@@ -1,65 +1,31 @@
 # Luxia Crypto Trade
 
 ## Current State
-
-All backend canister methods are defined in `src/backend/main.mo` (saveUsers, getUsers, saveTrackedTrades, getTrackedTrades, saveAILearning, getAILearning, saveCoinProfiles, getCoinProfiles, saveAISkillLog, getAISkillLog, saveAIParamHistory, getAIParamHistory, saveAIRewriteLog, getAIRewriteLog, recordGlobalOutcome, getGlobalStats, getBingXSymbols, getCoinGeckoPage).
-
-However:
-1. `src/frontend/src/declarations/backend.did.js` defines `IDL.Service({})` — completely empty. No methods exist in the IDL.
-2. `src/frontend/src/declarations/backend.did.d.ts` has `export interface _SERVICE {}` — empty.
-3. `src/frontend/src/backend.ts` — `Backend` class has no method implementations. Just a constructor.
-4. Because of #1-3, every `actor.getUsers()` / `actor.saveUsers()` etc call silently throws and returns empty string from the catch block in `backendStorage.ts`.
-5. `AuthContext.tsx` `login()` is synchronous and only reads localStorage. On a new device, localStorage is empty until the async backend sync completes. User can't login before that completes.
+- Backend canister has all storage methods: saveUsers/getUsers, saveTrackedTrades/getTrackedTrades, saveAILearning/getAILearning, saveCoinProfiles/getCoinProfiles, AI skill logs, global stats.
+- `backendStorage.ts` wraps all canister calls with fire-and-forget semantics, silently swallowing errors.
+- `AuthContext.tsx` loads backend users on mount and merges with localStorage, but does NOT save the merged result back to the backend.
+- `AdminPage.tsx` `createUser()`/`deleteUser()` read directly from `getUsers()` (localStorage) instead of using component `users` state — creating a race condition: if backend load hasn't completed, newly created users overwrite backend data.
+- When credit edits are saved, `setUsers(getUsers())` re-reads localStorage, which may not reflect state.
+- AI learning services save fire-and-forget; if canister is slow on first write, the call returns before data is committed.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Proper IDL service definition in `backend.did.js` and `backend.did.d.ts` for all canister methods
-- Proper method proxy implementations in `Backend` class in `backend.ts`
-- `usersLoaded` state in `AuthContext` to track when backend sync is done
-- Async `login()` that fetches users from backend if not found in localStorage
+- After merging backend + local users in `AuthContext`, save merged data back to backend if the merged set has more users than what the backend returned (ensures local-only users get pushed).
+- On first run when backend has no users, save DEFAULT_USERS to backend as bootstrap.
+- In `AdminPage`, after credit save, re-read from `users` state (not localStorage) to reflect the update.
 
 ### Modify
-- `backend.did.js` — replace `IDL.Service({})` with full service definition matching `main.mo`
-- `backend.did.d.ts` — replace empty `_SERVICE` with typed interface matching all methods
-- `backend.ts` — add all method proxy implementations to `Backend` class
-- `AuthContext.tsx` — make `login` async, add backend fallback when user not found locally
-- `LoginModal.tsx` — already calls `login` with await; update error message and loading state
+- `AdminPage.tsx` `createUser()`: use `users` state instead of `getUsers()` to build the updated list — prevents race condition.
+- `AdminPage.tsx` `deleteUser()`: use `users` state instead of `getUsers()`.
+- `AdminPage.tsx` credit save button `onClick`: refresh `users` state from updated source.
+- `AuthContext.tsx` backend load `useEffect`: after merging, call `saveUsersToBackend(merged)` if merged has more entries than backendUsers alone.
+- `AuthContext.tsx` `seedUsers`: also trigger a backend bootstrap if backend returns empty.
 
 ### Remove
-- Nothing removed
+- Nothing removed.
 
 ## Implementation Plan
-
-1. **Fix `backend.did.js`** — add full IDL factory matching `main.mo` methods:
-   - `saveUsers(Text) -> ()`
-   - `getUsers() -> (Text)` query
-   - `saveTrackedTrades(Text, Text) -> ()`
-   - `getTrackedTrades(Text) -> (Text)` query
-   - `saveAILearning(Text) -> ()`
-   - `getAILearning() -> (Text)` query
-   - `saveCoinProfiles(Text) -> ()`
-   - `getCoinProfiles() -> (Text)` query
-   - `saveAISkillLog(Text) -> ()`
-   - `getAISkillLog() -> (Text)` query
-   - `saveAIParamHistory(Text) -> ()`
-   - `getAIParamHistory() -> (Text)` query
-   - `saveAIRewriteLog(Text) -> ()`
-   - `getAIRewriteLog() -> (Text)` query
-   - `recordGlobalOutcome(Text) -> ()`
-   - `getGlobalStats() -> (Text)` query
-   - `transform(TransformArgs) -> (HttpResponsePayload)` query
-   - `getBingXSymbols() -> (Text)`
-   - `getCoinGeckoPage(Nat) -> (Text)`
-
-2. **Fix `backend.did.d.ts`** — add proper `_SERVICE` interface with `ActorMethod` types for all methods.
-
-3. **Fix `backend.ts`** — add `async` method proxy implementations to `Backend` class for all methods in `backendInterface`. Each method calls `(this.actor as any).methodName(args)` wrapped in try/catch with `processError`.
-
-4. **Fix `AuthContext.tsx`** — make `login` async:
-   - Try to find user in current localStorage users
-   - If not found: explicitly call `loadUsersFromBackend()` to force fresh sync, then try again
-   - Add `usersLoading` state (true while initial backend sync is in progress)
-   - Expose `usersLoading` so login button can show 'Loading accounts...' while syncing
-
-5. **Fix `LoginModal.tsx`** — show loading state when `usersLoading` is true ("Syncing accounts..." message)
+1. Fix `AdminPage.tsx`: `createUser` uses `users` state, `deleteUser` uses `users` state, credit save updates `users` state correctly.
+2. Fix `AuthContext.tsx`: after backend merge, save merged list back to backend if it grew; bootstrap DEFAULT_USERS to backend if backend was empty.
+3. Ensure AI data and tracked trades are re-synced on load using the same pattern (load backend → merge → save merged back).

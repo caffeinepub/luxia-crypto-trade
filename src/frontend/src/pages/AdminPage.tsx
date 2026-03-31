@@ -114,23 +114,30 @@ export default function AdminPage() {
   useEffect(() => {
     // Load users from backend first (so admin sees all users across devices)
     loadUsersFromBackend().then((backendRaw) => {
+      const localUsers = getUsers();
       if (backendRaw) {
         try {
           const backendUsers = JSON.parse(backendRaw);
           if (Array.isArray(backendUsers) && backendUsers.length > 0) {
-            const localUsers = getUsers();
             const merged = [...backendUsers];
+            let hasNew = false;
             for (const lu of localUsers) {
-              if (!merged.find((bu: StoredUser) => bu.uid === lu.uid))
+              if (!merged.find((bu: StoredUser) => bu.uid === lu.uid)) {
                 merged.push(lu);
+                hasNew = true;
+              }
             }
             localStorage.setItem("luxia_users", JSON.stringify(merged));
             setUsers(merged);
+            // Push any local-only users back to backend so they sync across devices
+            if (hasNew) saveUsersToBackend(JSON.stringify(merged));
             return;
           }
         } catch {}
       }
-      setUsers(getUsers());
+      // Backend returned empty — push local users to bootstrap cloud storage
+      saveUsersToBackend(JSON.stringify(localUsers));
+      setUsers(localUsers);
     });
     setPosts(getPosts());
     refreshAI();
@@ -149,7 +156,7 @@ export default function AdminPage() {
       toast.error("Username and password are required");
       return;
     }
-    const existing = getUsers();
+    const existing = users;
     if (existing.some((u) => u.username === newUsername.trim())) {
       toast.error("Username already exists");
       return;
@@ -177,7 +184,7 @@ export default function AdminPage() {
   }
 
   function deleteUser(uid: string) {
-    const updated = getUsers().filter((u) => u.uid !== uid);
+    const updated = users.filter((u) => u.uid !== uid);
     localStorage.setItem("luxia_users", JSON.stringify(updated));
     setUsers(updated);
     // Sync to backend
@@ -580,8 +587,14 @@ export default function AdminPage() {
                                     type="button"
                                     onClick={() => {
                                       updateUserCredits(u.uid, creditEditValue);
-                                      const all = getUsers();
-                                      setUsers(all);
+                                      // Reflect updated credits in state (updateUserCredits already updated localStorage)
+                                      setUsers((prev) =>
+                                        prev.map((p) =>
+                                          p.uid === u.uid
+                                            ? { ...p, credits: creditEditValue }
+                                            : p,
+                                        ),
+                                      );
                                       setEditingCreditsId(null);
                                     }}
                                     className="text-[10px] px-2 py-0.5 rounded-full bg-[#C9A84C]/20 text-[#B8902A] hover:bg-[#C9A84C]/40 font-bold"

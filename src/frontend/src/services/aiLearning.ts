@@ -64,23 +64,34 @@ export async function ensureAILearningInitialized(): Promise<void> {
   initPromise = (async () => {
     try {
       const backendData = await loadAILearningFromBackend();
+      const localData = loadData();
       if (!backendData) {
+        // Backend empty — push local data to bootstrap
+        if (localData.length > 0)
+          saveAILearningToBackend(JSON.stringify(localData));
         initialized = true;
         return;
       }
       const backendParsed: TradeOutcome[] = JSON.parse(backendData);
       if (!Array.isArray(backendParsed) || backendParsed.length === 0) {
+        if (localData.length > 0)
+          saveAILearningToBackend(JSON.stringify(localData));
         initialized = true;
         return;
       }
-      const localData = loadData();
       const merged = [...localData];
+      let hasNew = false;
       for (const item of backendParsed) {
-        if (!merged.find((m) => m.id === item.id)) merged.push(item);
+        if (!merged.find((m) => m.id === item.id)) {
+          merged.push(item);
+          hasNew = true;
+        }
       }
       merged.sort((a, b) => a.timestamp - b.timestamp);
       const trimmed = merged.slice(-500);
       localStorage.setItem(LEARNING_KEY, JSON.stringify(trimmed));
+      // If backend had new items not in local, save merged back
+      if (hasNew) saveAILearningToBackend(JSON.stringify(trimmed));
     } catch {}
     initialized = true;
   })();
