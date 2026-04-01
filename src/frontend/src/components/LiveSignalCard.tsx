@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useAuth } from "../context/AuthContext";
 import { useCredits } from "../context/CreditContext";
 import { chatWithAI } from "../services/ai";
+import { saveTrackedTradesToBackend } from "../services/backendStorage";
 import type { Signal } from "../services/signalEngine";
 import TradeDetailModal from "./TradeDetailModal";
 
@@ -125,6 +126,10 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
       }) as Signal,
     );
     localStorage.setItem(storageKey, JSON.stringify(existing));
+    // Fire-and-forget: sync to backend for cross-device persistence
+    if (user.role !== "guest") {
+      saveTrackedTradesToBackend(user.uid, JSON.stringify(existing));
+    }
     toast.success(`${signal.symbol} added to Tracking ✓`);
   };
 
@@ -433,39 +438,45 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
         {signal.aiEnriched && signal.aiRating && signal.aiRating !== "Skip" && (
           <div className="px-4 pb-2">
             <div
-              className="w-full rounded-xl px-3 py-1.5 flex items-center justify-between"
+              className={`w-full rounded-xl px-3 py-2 flex items-center justify-between ${signal.aiRating === "Strong Buy" ? "animate-pulse-slow" : ""}`}
               style={{
                 background:
                   signal.aiRating === "Strong Buy"
-                    ? "rgba(22,163,74,0.10)"
+                    ? "linear-gradient(135deg, rgba(22,163,74,0.18) 0%, rgba(124,58,237,0.12) 100%)"
                     : signal.aiRating === "Buy"
                       ? "rgba(37,99,235,0.08)"
                       : "rgba(201,168,76,0.10)",
                 border:
                   signal.aiRating === "Strong Buy"
-                    ? "1px solid rgba(22,163,74,0.35)"
+                    ? "1.5px solid rgba(22,163,74,0.55)"
                     : signal.aiRating === "Buy"
                       ? "1px solid rgba(37,99,235,0.25)"
                       : "1px solid rgba(201,168,76,0.35)",
+                boxShadow:
+                  signal.aiRating === "Strong Buy"
+                    ? "0 0 10px rgba(22,163,74,0.20)"
+                    : "none",
               }}
             >
               <span
-                className="font-bold text-xs flex items-center gap-1"
-                style={{
-                  color:
-                    signal.aiRating === "Strong Buy"
-                      ? "#15803d"
-                      : signal.aiRating === "Buy"
-                        ? "#1d4ed8"
-                        : "#92700d",
-                }}
+                className={`font-bold text-xs flex items-center gap-1.5 ${signal.aiRating === "Strong Buy" ? "text-green-700" : signal.aiRating === "Buy" ? "text-blue-700" : "text-amber-700"}`}
               >
-                {signal.guaranteedHit
-                  ? "🤖 AI STRONG BUY ✓"
-                  : `🤖 AI: ${signal.aiRating}`}
+                {signal.aiRating === "Strong Buy" ? (
+                  <>
+                    <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-ping opacity-75" />
+                    🤖 AI: STRONG BUY
+                    {signal.guaranteedHit
+                      ? " ✅ GUARANTEED"
+                      : " — Highest Certainty"}
+                  </>
+                ) : (
+                  `🤖 AI: ${signal.aiRating}`
+                )}
               </span>
               {signal.aiConfidence !== undefined && (
-                <span className="text-[10px] text-gray-500 font-medium">
+                <span
+                  className={`text-[10px] font-bold ${signal.aiRating === "Strong Buy" ? "text-green-700" : "text-gray-500"}`}
+                >
                   {signal.aiConfidence}% AI conf
                 </span>
               )}

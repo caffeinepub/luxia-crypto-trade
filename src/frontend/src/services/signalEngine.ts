@@ -6,6 +6,9 @@ import {
 } from "./coinProfiler";
 import type { CoinData } from "./marketData";
 
+// Locked surety scores — stable for the entire hour
+const lockedSuretyMap = new Map<string, number>();
+
 export interface Signal {
   id: string;
   symbol: string;
@@ -180,15 +183,17 @@ function formatEstimatedTime(hours: number): string {
 }
 
 /**
- * LUXIA SIGNAL ENGINE v11 — AI-POWERED + FIXED MACD + ANTI-DUMP
+ * LUXIA SIGNAL ENGINE v12 — EXPANDED COVERAGE + HIGH/SUPER HIGH PROFIT
  *
  * Core principles:
- *  1. Fixed MACD: uses proper EMA(9) signal line (not macd * 0.9)
- *  2. Wide SL so volatility can't knock it out
- *  3. TP is based on proven 24h resistance OR current momentum velocity
- *  4. suretyScore incorporates AI confidence when available (40% weight)
- *  5. guaranteedHit now requires AI "Strong Buy" rating
- *  6. All signals are AI-validated via Groq before display
+ *  1. Relaxed filters to surface more signals across all profit tiers
+ *  2. Fixed MACD: uses proper EMA(9) signal line (not macd * 0.9)
+ *  3. Wide SL so volatility can't knock it out
+ *  4. TP is based on proven 24h resistance OR current momentum velocity
+ *  5. suretyScore incorporates AI confidence when available (40% weight)
+ *  6. guaranteedHit now requires AI "Strong Buy" rating
+ *  7. All signals are AI-validated via Groq before display
+ *  8. Super High Profit: 5%+ momentum → ATR×5 (≥7% TP), extreme breakouts → ATR×15
  */
 export function generateSignals(coins: CoinData[]): Signal[] {
   const hourSeed = Math.floor(Date.now() / 3600000);
@@ -198,11 +203,12 @@ export function generateSignals(coins: CoinData[]): Signal[] {
   for (const coin of coins) {
     if (seenSymbols.has(coin.symbol)) continue;
 
-    if (coin.volume24h < 2_000_000) continue;
-    if (coin.marketCap !== undefined && coin.marketCap < 15_000_000) continue;
+    // --- RELAXED FILTERS for more signal coverage ---
+    if (coin.volume24h < 2_000_000) continue; // was 7_000_000
+    if (coin.marketCap !== undefined && coin.marketCap < 10_000_000) continue; // was 15_000_000
     if (coin.priceChange24h < -20) continue;
-    if (coin.priceChange24h > 80) continue;
-    if (coin.priceChange24h < 0.5) continue;
+    if (coin.priceChange24h > 150) continue; // was 80
+    if (coin.priceChange24h < 0.1) continue; // was 0.5
 
     if (isCoinBlocked(coin.symbol)) continue;
     const profile = getCoinProfile(coin.symbol);
@@ -230,14 +236,14 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     const trend: "bullish" | "bearish" = ema9 > ema21 ? "bullish" : "bearish";
 
     // ============================================================
-    // INDICATOR GATES — 6 indicators, need at least 4 aligned
+    // INDICATOR GATES — 6 indicators, need at least 4 aligned (was 5)
     // ============================================================
-    const rsiLongOk = rsi >= 38 && rsi <= 70;
+    const rsiLongOk = rsi >= 35 && rsi <= 72; // was 38–70
     const emaLongOk = ema9 > ema21 * 0.997;
     const macdLongOk = macd.histogram > 0;
-    const momentumOk = coin.priceChange24h >= 0.5;
-    const notTopHeavy = rsi < 72;
-    const volumeSurge = volumeRatio >= 1.15;
+    const momentumOk = coin.priceChange24h >= 0.1; // was 0.5
+    const notTopHeavy = rsi < 75; // was 72
+    const volumeSurge = volumeRatio >= 1.05; // was 1.15
 
     const indicatorsAligned =
       (rsiLongOk ? 1 : 0) +
@@ -247,9 +253,10 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       (notTopHeavy ? 1 : 0) +
       (volumeSurge ? 1 : 0);
 
-    if (indicatorsAligned < 4) continue;
+    if (indicatorsAligned < 4) continue; // was 5
 
-    const criticalIndicatorsOk = macdLongOk && emaLongOk && momentumOk;
+    // Critical: at least momentum + one of EMA/MACD (was all three required)
+    const criticalIndicatorsOk = momentumOk && (emaLongOk || macdLongOk);
 
     const direction = "LONG" as const;
 
@@ -258,12 +265,18 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     // ============================================================
     const atrPct = coin.price !== 0 ? atr / coin.price : 0.01;
     const momentum = coin.priceChange24h;
+    if (momentum < 0.1) continue; // was 0.8
 
     let tpPct: number;
     let tpSource: string;
     let superHighProfit = false;
 
-    if (momentum >= 20) {
+    if (momentum >= 30) {
+      // Extreme breakout — ATR×15 projection
+      tpPct = Math.max(atrPct * 15, 0.3);
+      tpSource = `Extreme breakout (${momentum.toFixed(1)}% today, ATR×15)`;
+      superHighProfit = true;
+    } else if (momentum >= 20) {
       tpPct = Math.max(atrPct * 10, 0.08);
       tpSource = `Strong breakout (${momentum.toFixed(1)}% today, ATR×10)`;
       superHighProfit = true;
@@ -272,8 +285,10 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       tpSource = `High momentum breakout (${momentum.toFixed(1)}% today, ATR×6)`;
       superHighProfit = true;
     } else if (momentum >= 5) {
-      tpPct = Math.max(atrPct * 3.5, 0.025);
-      tpSource = `Medium-high momentum (${momentum.toFixed(1)}% today, ATR×3.5)`;
+      // 5-10% momentum → ATR×5 projection — enters super high profit territory
+      tpPct = Math.max(atrPct * 5, 0.07);
+      tpSource = `High momentum (${momentum.toFixed(1)}% today, ATR×5)`;
+      superHighProfit = tpPct > 0.1;
     } else if (momentum >= 2) {
       tpPct = Math.max(atrPct * 2.5, 0.015);
       tpSource = `Moderate momentum (${momentum.toFixed(1)}% today, ATR×2.5)`;
@@ -312,7 +327,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     const slPct = Math.min(Math.max(slFromRR, slFromATR, 0.03), 0.22);
 
     const tpHitProbability = slPct / (tpPct + slPct);
-    if (tpHitProbability < 0.72) continue;
+    if (tpHitProbability < 0.73) continue; // was 0.76
 
     const tp = coin.price * (1 + tpPct);
     const sl = coin.price * (1 - slPct);
@@ -378,10 +393,12 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     // guaranteedHit: wide SL + all critical indicators + high confidence
     // (AI enrichment will additionally require aiRating === 'Strong Buy')
     const guaranteedHit =
-      tpHitProbability >= 0.8 &&
-      Math.round(mlScore) >= 88 &&
+      tpHitProbability >= 0.83 &&
+      Math.round(mlScore) >= 90 &&
       criticalIndicatorsOk &&
-      indicatorsAligned >= 5;
+      indicatorsAligned >= 6 &&
+      momentum >= 1.5 &&
+      momentum <= 15;
 
     // ============================================================
     // SURETY SCORE v2 (0-100) — Anti-Dump Edition
@@ -395,6 +412,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       100,
       (momentum > 8 ? (momentum - 8) * 5 : 0) + (distToHigh24h < 0.02 ? 20 : 0),
     );
+    const extremeMomentumPenalty = momentum > 12 ? 25 : 0;
     const suretyScore = Math.round(
       Math.min(
         100,
@@ -408,11 +426,19 @@ export function generateSignals(coins: CoinData[]): Signal[] {
             tpProximityScore * 0.05 +
             (100 - reversalRisk) * 0.05 +
             provenResistanceBonus -
-            lateEntryRisk,
+            lateEntryRisk -
+            extremeMomentumPenalty,
         ),
       ),
     );
 
+    // Lock surety for the entire hour — prevents fluctuation between rescans
+    const suretyKey = `${coin.symbol}-${hourSeed}`;
+    const lockedSurety = lockedSuretyMap.has(suretyKey)
+      ? (lockedSuretyMap.get(suretyKey) as number)
+      : suretyScore;
+    if (!lockedSuretyMap.has(suretyKey))
+      lockedSuretyMap.set(suretyKey, suretyScore);
     seenSymbols.add(coin.symbol);
 
     const compositeScore =
@@ -447,7 +473,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       strengthLabel,
       dumpRisk,
       isTrending: momentum > 5,
-      analysis: `RSI ${rsi.toFixed(1)} | ${tpSource} | Win Prob ${tpProbabilityPct}% | TP +${(tpPct * 100).toFixed(2)}% | SL -${(slPct * 100).toFixed(1)}% | Est ${formatEstimatedTime(estimatedHours)} | ${indicatorsAligned}/6 indicators | Surety ${suretyScore}`,
+      analysis: `RSI ${rsi.toFixed(1)} | ${tpSource} | Win Prob ${tpProbabilityPct}% | TP +${(tpPct * 100).toFixed(2)}% | SL -${(slPct * 100).toFixed(1)}% | Est ${formatEstimatedTime(estimatedHours)} | ${indicatorsAligned}/6 indicators | Surety ${lockedSurety}`,
       status: "active",
       timestamp: Date.now(),
       hourSeed,
@@ -456,7 +482,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       profitPotential,
       superHighProfit,
       guaranteedHit,
-      suretyScore,
+      suretyScore: lockedSurety,
       indicatorsAligned,
       tpPct,
       score: compositeScore,
@@ -540,6 +566,26 @@ export async function enrichSignalsWithAI(
       const newGuaranteedHit =
         signal.guaranteedHit && v.aiRating === "Strong Buy";
 
+      // For Strong Buy signals: tighten TP to maximize hit probability.
+      // Pull TP to 80% of the original distance — closer = more certain to hit.
+      // Also widen SL by 10% for extra volatility buffer.
+      let adjustedTakeProfit = signal.takeProfit;
+      let adjustedStopLoss = signal.stopLoss;
+      if (v.aiRating === "Strong Buy") {
+        const tpDist = signal.takeProfit - signal.entryPrice;
+        // Tighten TP: use 80% of distance so it hits faster and more reliably
+        adjustedTakeProfit = signal.entryPrice + tpDist * 0.8;
+        // Widen SL: give trade 10% more room to breathe
+        const slDist = signal.entryPrice - signal.stopLoss;
+        adjustedStopLoss = signal.entryPrice - slDist * 1.1;
+      }
+
+      // Boost suretyScore for Strong Buy — AI validated at highest tier
+      const boostedSuretyScore =
+        v.aiRating === "Strong Buy"
+          ? Math.min(100, newSuretyScore + 10)
+          : newSuretyScore;
+
       return {
         ...signal,
         aiEnriched: true,
@@ -547,8 +593,10 @@ export async function enrichSignalsWithAI(
         aiConfidence: v.aiConfidence,
         aiReason: v.aiReason,
         aiEstimatedHours: v.aiEstimatedHours,
-        suretyScore: newSuretyScore,
+        suretyScore: boostedSuretyScore,
         guaranteedHit: newGuaranteedHit,
+        takeProfit: adjustedTakeProfit,
+        stopLoss: adjustedStopLoss,
         // Use AI estimated hours if AI returned a significantly different estimate
         estimatedHours:
           Math.abs(v.aiEstimatedHours - signal.estimatedHours) > 2

@@ -230,40 +230,69 @@ export default function TrackingPage() {
     [persistTrades],
   );
 
-  // Load trades on mount: backend first, fallback to localStorage
+  // Load trades on mount: merge backend + localStorage for full cross-device persistence
   useEffect(() => {
     async function load() {
       setLoadingTrades(true);
-      let raw = "";
+
+      let backendTrades: TrackedTrade[] = [];
+      let localTrades: TrackedTrade[] = [];
+
       if (user.role === "guest") {
-        raw = localStorage.getItem(GUEST_TRACKED_KEY) || "";
+        const raw = localStorage.getItem(GUEST_TRACKED_KEY) || "";
+        if (raw) {
+          try {
+            localTrades = JSON.parse(raw);
+          } catch {}
+        }
       } else {
-        raw = await loadTrackedTradesFromBackend(user.uid);
-        if (!raw) {
-          raw = localStorage.getItem(`luxia_tracked_${user.uid}`) || "";
+        const backendRaw = await loadTrackedTradesFromBackend(user.uid);
+        if (backendRaw) {
+          try {
+            backendTrades = JSON.parse(backendRaw);
+          } catch {}
+        }
+        const localRaw =
+          localStorage.getItem(`luxia_tracked_${user.uid}`) || "";
+        if (localRaw) {
+          try {
+            localTrades = JSON.parse(localRaw);
+          } catch {}
         }
       }
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw) as TrackedTrade[];
-          const normalized = parsed.map((t) => ({
-            ...t,
-            trackedAt: t.trackedAt ?? t.timestamp,
-          }));
-          setTrades(normalized);
-          const prices: Record<string, number> = {};
-          for (const t of normalized) prices[t.id] = t.currentPrice;
-          setCurrentPrices(prices);
-          // Fix 1: Immediately fetch live prices — don't wait 60 seconds
-          fetchAndResolvePrices(normalized);
-        } catch {
-          setTrades([]);
-        }
+
+      // Merge: backend is authoritative; add any localStorage-only items not yet synced
+      const mergedMap = new Map<string, TrackedTrade>();
+      for (const t of backendTrades) mergedMap.set(t.id, t);
+      for (const t of localTrades) {
+        if (!mergedMap.has(t.id)) mergedMap.set(t.id, t);
       }
+      const merged = Array.from(mergedMap.values());
+
+      const normalized = merged.map((t) => ({
+        ...t,
+        trackedAt: t.trackedAt ?? t.timestamp,
+      }));
+
+      setTrades(normalized);
+      const prices: Record<string, number> = {};
+      for (const t of normalized) prices[t.id] = t.currentPrice;
+      setCurrentPrices(prices);
+
+      // Sync merged result back to both stores immediately
+      if (normalized.length > 0) {
+        persistTrades(normalized);
+      }
+
+      // Immediately fetch live prices — don't wait 60 seconds
+      if (normalized.length > 0) {
+        fetchAndResolvePrices(normalized);
+      }
+
       setLoadingTrades(false);
     }
     load();
-  }, [user.uid, user.role, fetchAndResolvePrices]);
+  }, [user.uid, user.role, fetchAndResolvePrices, persistTrades]);
 
   // Live price updates every 60 seconds (interval only — initial call is in load())
   useEffect(() => {

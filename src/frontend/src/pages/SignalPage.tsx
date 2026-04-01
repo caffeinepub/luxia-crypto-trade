@@ -19,7 +19,8 @@ type SortKey =
   | "confidence"
   | "tpProbability"
   | "surety"
-  | "guaranteedFirst";
+  | "guaranteedFirst"
+  | "strongBuyFirst";
 
 const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
   {
@@ -51,6 +52,11 @@ const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
     key: "guaranteedFirst",
     label: "Guaranteed Hits First",
     desc: "GUARANTEED HIT signals first, sorted by highest profit",
+  },
+  {
+    key: "strongBuyFirst",
+    label: "🤖 AI: Strong Buy First",
+    desc: "AI-validated Strong Buy signals first — highest certainty to hit TP",
   },
 ];
 
@@ -100,6 +106,18 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
         .sort((a, b) => profitPct(b) - profitPct(a));
       const rest = arr.filter((s) => !s.guaranteedHit);
       return [...guaranteed, ...rest];
+    }
+    case "strongBuyFirst": {
+      // AI: Strong Buy signals first (highest certainty to hit TP), sorted by composite within group
+      // Then Guaranteed Hits, then surety signals, then the rest
+      const strongBuy = arr
+        .filter((s) => s.aiRating === "Strong Buy" && s.guaranteedHit)
+        .sort((a, b) => profitPct(b) - profitPct(a));
+      const strongBuyNoGuarantee = arr
+        .filter((s) => s.aiRating === "Strong Buy" && !s.guaranteedHit)
+        .sort((a, b) => profitPct(b) - profitPct(a));
+      const rest = arr.filter((s) => s.aiRating !== "Strong Buy");
+      return [...strongBuy, ...strongBuyNoGuarantee, ...rest];
     }
     default:
       return arr.sort((a, b) => compositeScore(b) - compositeScore(a));
@@ -244,6 +262,11 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                 🎯 Optimal momentum window (1–9%) — lowest dump risk
               </span>
             )}
+            {sortKey === "strongBuyFirst" && (
+              <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded-full font-medium text-xs border border-purple-200">
+                🤖 AI: Strong Buy — highest certainty signals shown first
+              </span>
+            )}
 
             {/* Sort button */}
             <div ref={dropdownRef} className="relative ml-auto">
@@ -254,11 +277,19 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium shadow-sm transition-colors ${
                   sortKey === "surety"
                     ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-                    : "border-[#0A1628]/20 bg-white text-[#0A1628] hover:border-[#C9A84C] hover:text-[#C9A84C]"
+                    : sortKey === "strongBuyFirst"
+                      ? "border-purple-400 bg-purple-50 text-purple-700"
+                      : "border-[#0A1628]/20 bg-white text-[#0A1628] hover:border-[#C9A84C] hover:text-[#C9A84C]"
                 }`}
               >
                 <SlidersHorizontal size={13} />
-                <span>{sortKey === "surety" ? "🎯 Surety" : "Sort"}</span>
+                <span>
+                  {sortKey === "surety"
+                    ? "🎯 Surety"
+                    : sortKey === "strongBuyFirst"
+                      ? "🤖 Strong Buy"
+                      : "Sort"}
+                </span>
                 <ChevronDown
                   size={12}
                   className={`transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
@@ -284,6 +315,7 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                       {SORT_OPTIONS.map((opt) => {
                         const selected = sortKey === opt.key;
                         const isSurety = opt.key === "surety";
+                        const isStrongBuy = opt.key === "strongBuyFirst";
                         return (
                           <button
                             type="button"
@@ -298,7 +330,11 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                                 ? selected
                                   ? "bg-emerald-50"
                                   : "hover:bg-emerald-50/60"
-                                : "hover:bg-amber-50"
+                                : isStrongBuy
+                                  ? selected
+                                    ? "bg-purple-50"
+                                    : "hover:bg-purple-50/60"
+                                  : "hover:bg-amber-50"
                             }`}
                           >
                             {/* Radio dot */}
@@ -307,14 +343,20 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                                 selected
                                   ? isSurety
                                     ? "border-emerald-500 bg-emerald-500/10"
-                                    : "border-[#C9A84C] bg-[#C9A84C]/10"
+                                    : isStrongBuy
+                                      ? "border-purple-500 bg-purple-500/10"
+                                      : "border-[#C9A84C] bg-[#C9A84C]/10"
                                   : "border-[#0A1628]/25"
                               }`}
                             >
                               {selected && (
                                 <span
                                   className={`w-2 h-2 rounded-full block ${
-                                    isSurety ? "bg-emerald-500" : "bg-[#C9A84C]"
+                                    isSurety
+                                      ? "bg-emerald-500"
+                                      : isStrongBuy
+                                        ? "bg-purple-500"
+                                        : "bg-[#C9A84C]"
                                   }`}
                                 />
                               )}
@@ -325,7 +367,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                                   selected
                                     ? isSurety
                                       ? "text-emerald-600"
-                                      : "text-[#C9A84C]"
+                                      : isStrongBuy
+                                        ? "text-purple-600"
+                                        : "text-[#C9A84C]"
                                     : "text-[#0A1628]"
                                 }`}
                               >
@@ -346,7 +390,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                           className={`font-medium ${
                             sortKey === "surety"
                               ? "text-emerald-600"
-                              : "text-[#C9A84C]"
+                              : sortKey === "strongBuyFirst"
+                                ? "text-purple-600"
+                                : "text-[#C9A84C]"
                           }`}
                         >
                           {activeSortLabel}
