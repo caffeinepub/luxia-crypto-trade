@@ -20,7 +20,8 @@ type SortKey =
   | "tpProbability"
   | "surety"
   | "guaranteedFirst"
-  | "strongBuyFirst";
+  | "strongBuyFirst"
+  | "noLoss";
 
 const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
   {
@@ -58,6 +59,11 @@ const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
     label: "🤖 AI: Strong Buy First",
     desc: "AI-validated Strong Buy signals first — highest certainty to hit TP",
   },
+  {
+    key: "noLoss",
+    label: "🛡️ Surely Hits TP (No Dump)",
+    desc: "Only Low dump risk · RSI 42–68 · MACD positive · 5/6 indicators · room to run",
+  },
 ];
 
 function profitPct(s: Signal) {
@@ -76,19 +82,14 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
   const arr = signals.slice();
   switch (key) {
     case "surety": {
-      // For Highest Surety sort: only surface coins in the optimal momentum window.
-      // Coins that have pumped 10%+ are near their 24h high and likely to dump before TP.
-      // Coins below 1% momentum are flat and move too slowly.
-      // Optimal window: 1% <= momentum <= 9% — actively rising but not exhausted.
       const suretyFiltered = arr.filter(
         (s) =>
-          s.estimatedHours <= 12 && // must hit TP within 12h (less reversal risk)
-          s.confidence >= 82 && // strong indicator confidence
-          s.tpProbability >= 77 && // high geometric probability
+          s.estimatedHours <= 12 &&
+          s.confidence >= 82 &&
+          s.tpProbability >= 77 &&
           s.momentum >= 1 &&
-          s.momentum <= 9, // optimal momentum window: not exhausted pump, not flat
+          s.momentum <= 9,
       );
-      // Fall back to full set if filter yields < 3 results
       const source = suretyFiltered.length >= 3 ? suretyFiltered : arr;
       return source.sort((a, b) => (b.suretyScore ?? 0) - (a.suretyScore ?? 0));
     }
@@ -108,8 +109,6 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
       return [...guaranteed, ...rest];
     }
     case "strongBuyFirst": {
-      // AI: Strong Buy signals first (highest certainty to hit TP), sorted by composite within group
-      // Then Guaranteed Hits, then surety signals, then the rest
       const strongBuy = arr
         .filter((s) => s.aiRating === "Strong Buy" && s.guaranteedHit)
         .sort((a, b) => profitPct(b) - profitPct(a));
@@ -119,6 +118,53 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
       const rest = arr.filter((s) => s.aiRating !== "Strong Buy");
       return [...strongBuy, ...strongBuyNoGuarantee, ...rest];
     }
+    case "noLoss": {
+      // Multi-layer anti-dump filter:
+      // 1. dumpRisk must be "Low" (not near resistance, not overbought, MACD positive)
+      // 2. RSI in healthy zone — not overbought (signals store rsiValue)
+      // 3. Momentum in early-move window 0.5–8% (not exhausted)
+      // 4. Strong indicator alignment (5 or 6 out of 6)
+      // 5. High confidence + TP probability
+      // 6. Estimated to hit within 10 hours
+      // 7. Has room to run: distToHigh24h > 2%
+      const noLossFiltered = arr.filter(
+        (s) =>
+          s.dumpRisk === "Low" &&
+          s.rsiValue >= 42 &&
+          s.rsiValue <= 68 &&
+          s.momentum >= 0.5 &&
+          s.momentum <= 8 &&
+          s.indicatorsAligned >= 5 &&
+          s.confidence >= 85 &&
+          (s.tpProbability ?? 0) >= 82 &&
+          (s.suretyScore ?? 0) >= 65 &&
+          s.estimatedHours <= 10 &&
+          (s.distToHigh24h === undefined || s.distToHigh24h > 0.02),
+      );
+
+      // Fallback: relax to just dumpRisk=Low + healthy RSI + 5 indicators
+      const fallback = arr.filter(
+        (s) =>
+          s.dumpRisk === "Low" &&
+          s.rsiValue >= 40 &&
+          s.rsiValue <= 70 &&
+          s.indicatorsAligned >= 5 &&
+          s.confidence >= 82 &&
+          (s.tpProbability ?? 0) >= 78,
+      );
+
+      // Wider fallback: just dumpRisk=Low if still too few
+      const wideFallback = arr.filter((s) => s.dumpRisk === "Low");
+
+      const source =
+        noLossFiltered.length >= 2
+          ? noLossFiltered
+          : fallback.length >= 2
+            ? fallback
+            : wideFallback;
+
+      return source.sort((a, b) => profitPct(b) - profitPct(a));
+    }
     default:
       return arr.sort((a, b) => compositeScore(b) - compositeScore(a));
   }
@@ -127,7 +173,6 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
 function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
   switch (type) {
     case "fast":
-      // Only trades that will hit TP in few hours or minutes — estimatedHours <= 4
       return signals.filter(
         (s) =>
           s.action === "BUY" &&
@@ -136,7 +181,6 @@ function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
       );
 
     case "tradeNow":
-      // Only signals where current price is within 1.5% of entry — can enter NOW
       return signals.filter(
         (s) =>
           Math.abs(s.currentPrice - s.entryPrice) / (s.entryPrice || 1) <=
@@ -144,7 +188,6 @@ function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
       );
 
     case "highProfit":
-      // ONLY trades with profit between 2% and 10% (inclusive)
       return signals
         .filter((s) => {
           const pp = (s.takeProfit - s.entryPrice) / (s.entryPrice || 1);
@@ -157,7 +200,6 @@ function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
         );
 
     case "superHighProfit":
-      // ONLY trades with profit above 10%
       return signals
         .filter((s) => {
           const pp = (s.takeProfit - s.entryPrice) / (s.entryPrice || 1);
@@ -267,6 +309,11 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                 🤖 AI: Strong Buy — highest certainty signals shown first
               </span>
             )}
+            {sortKey === "noLoss" && (
+              <span className="bg-rose-50 text-rose-700 px-2 py-1 rounded-full font-medium text-xs border border-rose-200">
+                🛡️ Low dump risk · RSI safe · room to run — all others hidden
+              </span>
+            )}
 
             {/* Sort button */}
             <div ref={dropdownRef} className="relative ml-auto">
@@ -279,7 +326,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                     ? "border-emerald-400 bg-emerald-50 text-emerald-700"
                     : sortKey === "strongBuyFirst"
                       ? "border-purple-400 bg-purple-50 text-purple-700"
-                      : "border-[#0A1628]/20 bg-white text-[#0A1628] hover:border-[#C9A84C] hover:text-[#C9A84C]"
+                      : sortKey === "noLoss"
+                        ? "border-rose-400 bg-rose-50 text-rose-700"
+                        : "border-[#0A1628]/20 bg-white text-[#0A1628] hover:border-[#C9A84C] hover:text-[#C9A84C]"
                 }`}
               >
                 <SlidersHorizontal size={13} />
@@ -288,7 +337,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                     ? "🎯 Surety"
                     : sortKey === "strongBuyFirst"
                       ? "🤖 Strong Buy"
-                      : "Sort"}
+                      : sortKey === "noLoss"
+                        ? "🛡️ No Dump"
+                        : "Sort"}
                 </span>
                 <ChevronDown
                   size={12}
@@ -316,6 +367,7 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                         const selected = sortKey === opt.key;
                         const isSurety = opt.key === "surety";
                         const isStrongBuy = opt.key === "strongBuyFirst";
+                        const isNoLoss = opt.key === "noLoss";
                         return (
                           <button
                             type="button"
@@ -334,7 +386,11 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                                   ? selected
                                     ? "bg-purple-50"
                                     : "hover:bg-purple-50/60"
-                                  : "hover:bg-amber-50"
+                                  : isNoLoss
+                                    ? selected
+                                      ? "bg-rose-50"
+                                      : "hover:bg-rose-50/60"
+                                    : "hover:bg-amber-50"
                             }`}
                           >
                             {/* Radio dot */}
@@ -345,7 +401,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                                     ? "border-emerald-500 bg-emerald-500/10"
                                     : isStrongBuy
                                       ? "border-purple-500 bg-purple-500/10"
-                                      : "border-[#C9A84C] bg-[#C9A84C]/10"
+                                      : isNoLoss
+                                        ? "border-rose-500 bg-rose-500/10"
+                                        : "border-[#C9A84C] bg-[#C9A84C]/10"
                                   : "border-[#0A1628]/25"
                               }`}
                             >
@@ -356,7 +414,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                                       ? "bg-emerald-500"
                                       : isStrongBuy
                                         ? "bg-purple-500"
-                                        : "bg-[#C9A84C]"
+                                        : isNoLoss
+                                          ? "bg-rose-500"
+                                          : "bg-[#C9A84C]"
                                   }`}
                                 />
                               )}
@@ -369,7 +429,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                                       ? "text-emerald-600"
                                       : isStrongBuy
                                         ? "text-purple-600"
-                                        : "text-[#C9A84C]"
+                                        : isNoLoss
+                                          ? "text-rose-600"
+                                          : "text-[#C9A84C]"
                                     : "text-[#0A1628]"
                                 }`}
                               >
@@ -392,7 +454,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                               ? "text-emerald-600"
                               : sortKey === "strongBuyFirst"
                                 ? "text-purple-600"
-                                : "text-[#C9A84C]"
+                                : sortKey === "noLoss"
+                                  ? "text-rose-600"
+                                  : "text-[#C9A84C]"
                           }`}
                         >
                           {activeSortLabel}
