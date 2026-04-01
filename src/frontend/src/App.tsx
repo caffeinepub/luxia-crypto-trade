@@ -4,6 +4,7 @@ import {
   BarChart3,
   BookOpen,
   Cpu,
+  Crown,
   FileText,
   Home,
   LogIn,
@@ -34,6 +35,7 @@ import AISkillsPage from "./pages/AISkillsPage";
 import ActiveSignalsPage from "./pages/ActiveSignalsPage";
 import AdminPage from "./pages/AdminPage";
 import DashboardPage from "./pages/DashboardPage";
+import ElitePage from "./pages/ElitePage";
 import FastTradePage from "./pages/FastTradePage";
 import FounderPage from "./pages/FounderPage";
 import HighProfitPage from "./pages/HighProfitPage";
@@ -55,6 +57,7 @@ export type Page =
   | "active"
   | "highProfit"
   | "superHighProfit"
+  | "elite"
   | "search"
   | "tracking"
   | "founder"
@@ -74,6 +77,7 @@ const TOP_TABS = [
   { id: "active" as Page, label: "ACTIVE SIGNALS", Icon: Activity },
   { id: "highProfit" as Page, label: "HIGH PROFIT", Icon: BarChart3 },
   { id: "superHighProfit" as Page, label: "SUPER HIGH", Icon: Rocket },
+  { id: "elite" as Page, label: "ELITE", Icon: Crown },
   { id: "search" as Page, label: "SEARCH", Icon: Search },
   { id: "tracking" as Page, label: "TRACKING", Icon: BookOpen },
   { id: "founder" as Page, label: "FOUNDER", Icon: User },
@@ -165,6 +169,8 @@ function AppInner() {
         return <HighProfitPage />;
       case "superHighProfit":
         return <SuperHighProfitPage />;
+      case "elite":
+        return <ElitePage />;
       case "search":
         return <SearchPage />;
       case "tracking":
@@ -254,6 +260,7 @@ function AppInner() {
             <div className="flex items-center gap-1 min-w-max">
               {topTabs.map(({ id, label, Icon }) => {
                 const active = page === id;
+                const isElite = id === "elite";
                 return (
                   <button
                     type="button"
@@ -262,8 +269,12 @@ function AppInner() {
                     onClick={() => navigate(id)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold tracking-widest uppercase transition-all whitespace-nowrap ${
                       active
-                        ? "bg-[#0A1628] text-white shadow-sm"
-                        : "text-[#0A1628]/70 hover:bg-[#0A1628]/5 hover:text-[#0A1628]"
+                        ? isElite
+                          ? "bg-[#C9A84C] text-[#0A1628] shadow-sm"
+                          : "bg-[#0A1628] text-white shadow-sm"
+                        : isElite
+                          ? "text-[#C9A84C] hover:bg-[#C9A84C]/10 border border-[#C9A84C]/40"
+                          : "text-[#0A1628]/70 hover:bg-[#0A1628]/5 hover:text-[#0A1628]"
                     }`}
                   >
                     <Icon size={13} />
