@@ -57,6 +57,12 @@ export interface Signal {
   indicatorsAligned: number;
   /** Raw TP percentage for AI enrichment */
   tpPct?: number;
+  /** Risk:Reward ratio — TP distance / SL distance. Must be >= 1.5 for Elite */
+  rrRatio: number;
+  /** True if entry is a pullback/retest — price is 0.5–7% below recent 24h high */
+  isOnPullback: boolean;
+  /** Higher highs + higher lows trend structure confirmed from candle data */
+  trendStructure: "HH/HL" | "unclear";
   /** Distance to 24h high as a pct — used for dump risk */
   distToHigh24h?: number;
 }
@@ -352,6 +358,23 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     const slFromATR = atrPct * 3.5 * slMultiplier;
     const slPct = Math.min(Math.max(slFromRR, slFromATR, 0.03), 0.22);
 
+    // ============================================================
+    // ELITE INSTITUTIONAL FIELDS
+    // ============================================================
+    const rrRatio = Number.parseFloat((tpPct / slPct).toFixed(2));
+    const isOnPullback =
+      (distToHigh24h ?? 0) >= 0.005 && (distToHigh24h ?? 0) <= 0.07;
+    const lastHighs = candles.slice(-6).map((c) => c.high);
+    const lastLows = candles.slice(-6).map((c) => c.low);
+    let hhCount = 0;
+    let hlCount = 0;
+    for (let i = 1; i < lastHighs.length; i++) {
+      if (lastHighs[i] > lastHighs[i - 1]) hhCount++;
+      if (lastLows[i] > lastLows[i - 1]) hlCount++;
+    }
+    const trendStructure: "HH/HL" | "unclear" =
+      hhCount >= 3 && hlCount >= 3 ? "HH/HL" : "unclear";
+
     const tpHitProbability = slPct / (tpPct + slPct);
     const momentumBonus =
       momentum >= 20
@@ -524,6 +547,9 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       indicatorsAligned,
       tpPct,
       distToHigh24h,
+      rrRatio,
+      isOnPullback,
+      trendStructure,
       score: compositeScore,
     });
   }

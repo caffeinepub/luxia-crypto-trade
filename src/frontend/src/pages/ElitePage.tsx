@@ -149,12 +149,22 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
   }
 }
 
-function filterElite(signals: Signal[]): Signal[] {
-  const filtered = signals.filter(
+const SESSION_MAX = 2;
+
+interface EliteFilterResult {
+  signals: Signal[];
+  noTradeReason: string | null;
+  sessionFull: boolean;
+  totalFiltered: number;
+}
+
+function filterEliteInstitutional(signals: Signal[]): EliteFilterResult {
+  // Rule 1: Base institutional filters
+  let filtered = signals.filter(
     (s) =>
       s.confidence >= 90 &&
       (s.tpProbability ?? 0) >= 88 &&
-      (s.suretyScore ?? 0) >= 78 &&
+      (s.suretyScore ?? 0) >= 75 &&
       s.indicatorsAligned >= 5 &&
       s.dumpRisk === "Low" &&
       s.momentum >= 0.5 &&
@@ -167,10 +177,102 @@ function filterElite(signals: Signal[]): Signal[] {
         s.aiRating === "Buy"),
   );
 
-  // Sort by composite score and return top 6
-  return filtered
-    .sort((a, b) => compositeScore(b) - compositeScore(a))
-    .slice(0, 6);
+  if (filtered.length === 0) {
+    return {
+      signals: [],
+      noTradeReason:
+        "No signals pass base institutional filters (90%+ confidence, 88%+ TP probability, low dump risk).",
+      sessionFull: false,
+      totalFiltered: 0,
+    };
+  }
+
+  // Rule 2: Market must be trending — skip sideways/choppy coins
+  const trendingFiltered = filtered.filter(
+    (s) => s.trendDirection === "bullish" && s.momentum >= 1.5,
+  );
+  if (trendingFiltered.length === 0) {
+    return {
+      signals: [],
+      noTradeReason:
+        "Market conditions unclear — no strong trending coins detected. Avoid sideways or choppy conditions.",
+      sessionFull: false,
+      totalFiltered: 0,
+    };
+  }
+  filtered = trendingFiltered;
+
+  // Rule 3: HH/HL trend structure required
+  const hhhlFiltered = filtered.filter((s) => s.trendStructure === "HH/HL");
+  if (hhhlFiltered.length === 0) {
+    return {
+      signals: [],
+      noTradeReason:
+        "No clear Higher Highs / Higher Lows trend structure confirmed. Entry requires an established uptrend.",
+      sessionFull: false,
+      totalFiltered: 0,
+    };
+  }
+  filtered = hhhlFiltered;
+
+  // Rule 4: Entry on pullback only — not chasing breakout
+  const pullbackFiltered = filtered.filter((s) => s.isOnPullback);
+  if (pullbackFiltered.length === 0) {
+    return {
+      signals: [],
+      noTradeReason:
+        "All signals are breakout chases — no pullback or retest entries available. Wait for a clean pullback.",
+      sessionFull: false,
+      totalFiltered: 0,
+    };
+  }
+  filtered = pullbackFiltered;
+
+  // Rule 5: Minimum R:R 1:1.5
+  const rrFiltered = filtered.filter((s) => s.rrRatio >= 1.5);
+  if (rrFiltered.length === 0) {
+    return {
+      signals: [],
+      noTradeReason:
+        "No signals meet minimum 1:1.5 Risk:Reward ratio. TP targets are too small relative to stop-loss distance.",
+      sessionFull: false,
+      totalFiltered: 0,
+    };
+  }
+  filtered = rrFiltered;
+
+  // Rule 6: Avoid overextended price moves
+  filtered = filtered.filter((s) => s.momentum <= 12);
+  if (filtered.length === 0) {
+    return {
+      signals: [],
+      noTradeReason:
+        "All qualifying coins are overextended (>12% move today). Avoid chasing extended price action.",
+      sessionFull: false,
+      totalFiltered: 0,
+    };
+  }
+
+  // Rule 7: Sort by composite score and apply session cap of 2
+  const sorted = filtered.sort((a, b) => {
+    const scoreA =
+      a.confidence * 0.3 +
+      (a.tpProbability ?? 0) * 0.3 +
+      (a.suretyScore ?? 0) * 0.2 +
+      a.rrRatio * 10 * 0.2;
+    const scoreB =
+      b.confidence * 0.3 +
+      (b.tpProbability ?? 0) * 0.3 +
+      (b.suretyScore ?? 0) * 0.2 +
+      b.rrRatio * 10 * 0.2;
+    return scoreB - scoreA;
+  });
+
+  const totalFiltered = filtered.length;
+  const top2 = sorted.slice(0, SESSION_MAX);
+  const sessionFull = totalFiltered > SESSION_MAX;
+
+  return { signals: top2, noTradeReason: null, sessionFull, totalFiltered };
 }
 
 export default function ElitePage() {
@@ -194,8 +296,9 @@ export default function ElitePage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [dropdownOpen]);
 
-  const eliteSignals = filterElite(signals);
-  const sorted = sortSignals(eliteSignals, sortKey);
+  const eliteResult = filterEliteInstitutional(signals);
+  const sorted = sortSignals(eliteResult.signals, sortKey);
+  const { noTradeReason, sessionFull, totalFiltered } = eliteResult;
 
   const activeSortLabel =
     SORT_OPTIONS.find((o) => o.key === sortKey)?.label ?? "Sort";
@@ -439,19 +542,61 @@ export default function ElitePage() {
             animate={{ opacity: 1, scale: 1 }}
             className="min-h-[60vh] flex flex-col items-center justify-center text-center px-4 py-16"
           >
-            <div className="text-7xl mb-6">🚫</div>
-            <h2 className="text-[#0A1628] font-black text-2xl mb-3 tracking-tight">
-              NO TRADE — Market Conditions Not Ideal
+            <motion.div
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 200, damping: 15 }}
+              className="text-8xl mb-6 select-none"
+            >
+              ⛔
+            </motion.div>
+            <div className="mb-2 inline-flex items-center gap-2 bg-red-50 border border-red-200 px-4 py-1.5 rounded-full">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-red-600 font-black text-sm tracking-widest uppercase">
+                NO TRADE
+              </span>
+            </div>
+            <h2 className="text-[#0A1628] font-black text-2xl mt-4 mb-3 tracking-tight">
+              Market Does Not Meet Institutional Criteria
             </h2>
-            <p className="text-[#0A1628]/50 text-sm max-w-md mb-2">
-              No A+ institutional setups found at this time. The market is not
-              offering clean, high-certainty entries that meet all elite
-              criteria.
-            </p>
-            <p className="text-[#0A1628]/35 text-xs max-w-sm mb-8">
-              Our AI is waiting for the perfect entry. Come back after the next
-              rescan.
-            </p>
+            {noTradeReason && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+                className="bg-[#0A1628]/5 border border-[#0A1628]/15 rounded-2xl px-6 py-4 max-w-md mb-6"
+              >
+                <p className="text-[#0A1628] font-semibold text-sm mb-1">
+                  🔍 Reason:
+                </p>
+                <p className="text-[#0A1628]/70 text-sm leading-relaxed">
+                  {noTradeReason}
+                </p>
+              </motion.div>
+            )}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+              className="bg-amber-50 border border-amber-200 rounded-2xl px-6 py-4 max-w-md mb-8"
+            >
+              <p className="text-amber-800 font-semibold text-xs mb-2 uppercase tracking-wider">
+                💡 Institutional Tip
+              </p>
+              <p className="text-amber-700 text-sm leading-relaxed">
+                {noTradeReason?.includes("pullback")
+                  ? "Wait for a retest of support or a clean pullback before entering. Never chase breakouts."
+                  : noTradeReason?.includes("R:R") ||
+                      noTradeReason?.includes("Risk:Reward")
+                    ? "A minimum 1:1.5 R:R means your profit target must be at least 1.5× your risk. Only trade setups that offer this."
+                    : noTradeReason?.includes("HH/HL") ||
+                        noTradeReason?.includes("trend")
+                      ? "Trade only when higher highs and higher lows are confirmed. Avoid unclear or choppy market structures."
+                      : noTradeReason?.includes("overextended")
+                        ? "Never enter coins that have already moved 12%+ today. Wait for the next consolidation and new setup."
+                        : "Patience is a trading edge. Waiting for the perfect setup preserves capital and maximises win rate."}
+              </p>
+            </motion.div>
             <div className="flex flex-col items-center gap-4">
               <button
                 type="button"
@@ -466,17 +611,48 @@ export default function ElitePage() {
                 />
                 {scanning ? "Scanning..." : "Rescan Markets"}
               </button>
-              <div className="bg-[#C9A84C]/10 border border-[#C9A84C]/25 rounded-xl px-5 py-3 max-w-xs">
-                <p className="text-[#8B6914] text-xs font-medium leading-relaxed">
-                  💡 <strong>Elite criteria:</strong> 90%+ confidence, 88%+ TP
-                  probability, 78+ surety score, 5/6 indicators aligned, low
-                  dump risk, RSI 42–68
+              <div className="bg-[#C9A84C]/10 border border-[#C9A84C]/25 rounded-xl px-5 py-4 max-w-sm">
+                <p className="text-[#8B6914] text-xs font-semibold mb-2 uppercase tracking-wider">
+                  ⚖️ Full Institutional Rules
                 </p>
+                <ul className="text-[#8B6914]/80 text-xs space-y-1 text-left leading-relaxed">
+                  <li>• 90%+ confidence · 88%+ TP probability · 75+ surety</li>
+                  <li>• Clear HH/HL trend structure confirmed</li>
+                  <li>
+                    • Entry on pullback or retest only — no breakout chasing
+                  </li>
+                  <li>• Minimum R:R 1:1.5 per trade</li>
+                  <li>• RSI 42–68 · Low dump risk · 5/6 indicators aligned</li>
+                  <li>• Momentum 1.5–12% · Not overextended</li>
+                  <li>• Max 2 A+ trades per session</li>
+                </ul>
               </div>
             </div>
           </motion.div>
         ) : (
           <>
+            {/* Session cap banner */}
+            {sessionFull && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-5 flex items-center gap-3 bg-[#0A1628] text-white px-5 py-3 rounded-xl shadow-lg"
+              >
+                <Crown size={16} className="text-[#C9A84C] flex-shrink-0" />
+                <p className="text-sm font-semibold">
+                  <span className="text-[#C9A84C]">SESSION CAP REACHED</span>
+                  <span className="text-white/70 font-normal">
+                    {" "}
+                    — Showing top {SESSION_MAX} A+ setups of{" "}
+                    <span className="text-white font-bold">
+                      {totalFiltered}
+                    </span>{" "}
+                    qualifying signals
+                  </span>
+                </p>
+              </motion.div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
               {sorted.map((sig, i) => (
                 <motion.div
@@ -487,12 +663,50 @@ export default function ElitePage() {
                   className="relative"
                   data-ocid={`elite.item.${i + 1}`}
                 >
-                  {/* ELITE ribbon */}
-                  <div className="absolute top-3 right-3 z-10 bg-gradient-to-r from-[#C9A84C] to-[#E8C97A] text-[#0A1628] text-[10px] font-black tracking-widest uppercase px-2.5 py-1 rounded-full shadow-md flex items-center gap-1 pointer-events-none">
-                    <span>⭐</span>
-                    <span>ELITE</span>
+                  {/* Trade counter label */}
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-[#0A1628]/50 text-[11px] font-bold tracking-wider uppercase">
+                      Trade {i + 1} of {SESSION_MAX}
+                    </span>
+                    <span className="h-px flex-1 bg-[#C9A84C]/20" />
                   </div>
-                  <LiveSignalCard signal={sig} index={i} />
+
+                  {/* Card wrapper with institutional badges */}
+                  <div className="relative">
+                    {/* ELITE ribbon */}
+                    <div className="absolute top-3 right-3 z-10 bg-gradient-to-r from-[#C9A84C] to-[#E8C97A] text-[#0A1628] text-[10px] font-black tracking-widest uppercase px-2.5 py-1 rounded-full shadow-md flex items-center gap-1 pointer-events-none">
+                      <span>⭐</span>
+                      <span>ELITE</span>
+                    </div>
+
+                    {/* Institutional badges — bottom overlay */}
+                    <div className="absolute bottom-3 left-3 z-10 flex flex-wrap gap-1 pointer-events-none max-w-[calc(100%-2rem)]">
+                      {/* R:R badge */}
+                      <span
+                        className={`inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.5 rounded-md shadow-sm ${
+                          sig.rrRatio >= 2
+                            ? "bg-[#C9A84C] text-[#0A1628]"
+                            : "bg-blue-600 text-white"
+                        }`}
+                      >
+                        R:R {sig.rrRatio}:1
+                      </span>
+                      {/* HH/HL badge */}
+                      {sig.trendStructure === "HH/HL" && (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] font-black bg-green-600 text-white px-1.5 py-0.5 rounded-md shadow-sm">
+                          📈 HH/HL
+                        </span>
+                      )}
+                      {/* Pullback badge */}
+                      {sig.isOnPullback && (
+                        <span className="inline-flex items-center gap-0.5 text-[9px] font-black bg-emerald-600 text-white px-1.5 py-0.5 rounded-md shadow-sm">
+                          🎯 Pullback
+                        </span>
+                      )}
+                    </div>
+
+                    <LiveSignalCard signal={sig} index={i} />
+                  </div>
                 </motion.div>
               ))}
             </div>
@@ -500,8 +714,9 @@ export default function ElitePage() {
             {/* Institutional disclaimer */}
             <div className="flex justify-center">
               <p className="text-[#0A1628]/30 text-xs text-center border-t border-[#0A1628]/8 pt-4 pb-2 max-w-md">
-                ⚖️ Only 1–6 signals per session. Quality over quantity. Elite
-                signals meet all institutional-grade entry criteria.
+                ⚖️ Max 2 A+ signals per session — institutional grade. Quality
+                over quantity. Elite signals meet all institutional-grade entry
+                criteria.
               </p>
             </div>
           </>
