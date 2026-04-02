@@ -3,6 +3,7 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  CheckCircle,
   Cpu,
   Crown,
   FileText,
@@ -49,6 +50,7 @@ import SignalsPage from "./pages/SignalsPage";
 import SuperHighProfitPage from "./pages/SuperHighProfitPage";
 import TrackingPage from "./pages/TrackingPage";
 import TradeNowPage from "./pages/TradeNowPage";
+import VerifiedSignalsPage from "./pages/VerifiedSignalsPage";
 
 export type Page =
   | "home"
@@ -68,7 +70,8 @@ export type Page =
   | "signals"
   | "admin"
   | "aiSkills"
-  | "instructions";
+  | "instructions"
+  | "verifiedSignals";
 
 const TOP_TABS = [
   { id: "home" as Page, label: "HOME", Icon: Home },
@@ -95,6 +98,11 @@ const SIDEBAR_TABS = [
   { id: "founder" as Page, label: "Founder", Icon: UserCircle },
   { id: "aiSkills" as Page, label: "AI Skills", Icon: Cpu },
   { id: "instructions" as Page, label: "Instructions", Icon: FileText },
+  {
+    id: "verifiedSignals" as Page,
+    label: "Verified Signals",
+    Icon: CheckCircle,
+  },
 ];
 
 function statusColor(status: string): string {
@@ -193,6 +201,8 @@ function AppInner() {
         return <AISkillsPage />;
       case "instructions":
         return <InstructionsPage />;
+      case "verifiedSignals":
+        return <VerifiedSignalsPage />;
       default:
         return <HomePage onNavigate={navigate} />;
     }
