@@ -9,6 +9,7 @@ import { chatWithAI } from "../services/ai";
 import { saveTrackedTradesToBackend } from "../services/backendStorage";
 import type { Signal } from "../services/signalEngine";
 import TradeDetailModal from "./TradeDetailModal";
+import TradeTestModal, { type TradeTestResult } from "./TradeTestModal";
 
 interface ChatMsg {
   id: number;
@@ -50,6 +51,8 @@ function formatPrice(p: number): string {
 export default function LiveSignalCard({ signal, index = 0 }: Props) {
   const [chatOpen, setChatOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [testModalOpen, setTestModalOpen] = useState(false);
+  const [testResult, setTestResult] = useState<TradeTestResult | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -76,7 +79,6 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
 
   const isHighProfit = signal.profitPotential === "High";
 
-  // Speed classification
   const momentum = signal.momentum ?? 0;
   const isSuperFast = signal.estimatedHours <= 1 || momentum >= 20;
   const isFast = !isSuperFast && (signal.estimatedHours <= 3 || momentum >= 10);
@@ -88,7 +90,6 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
     !isVerySlow &&
     (signal.estimatedHours >= 20 || momentum < 1.5);
 
-  // Card border/shadow class
   let cardBorderClass: string;
   if (isSuperFast) {
     cardBorderClass = "border-2 border-orange-400 shadow-[0_0_14px_#fb923c40]";
@@ -100,13 +101,11 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
     cardBorderClass = "border border-gray-300 shadow-md";
   }
 
-  // Profit % if TP is hit
   const tpProfitPct = isLong
     ? ((signal.takeProfit - signal.entryPrice) / signal.entryPrice) * 100
     : ((signal.entryPrice - signal.takeProfit) / signal.entryPrice) * 100;
 
-  const handleTrack = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const doTrack = () => {
     if (isLocked) {
       toast.error("No credits remaining. Activate your account.");
       return;
@@ -126,11 +125,24 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
       }) as Signal,
     );
     localStorage.setItem(storageKey, JSON.stringify(existing));
-    // Fire-and-forget: sync to backend for cross-device persistence
     if (user.role !== "guest") {
       saveTrackedTradesToBackend(user.uid, JSON.stringify(existing));
     }
     toast.success(`${signal.symbol} added to Tracking ✓`);
+  };
+
+  const handleTrack = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    doTrack();
+  };
+
+  const handleTestClose = (result?: TradeTestResult) => {
+    setTestModalOpen(false);
+    if (result) setTestResult(result);
+  };
+
+  const handleTestConfirm = () => {
+    doTrack();
   };
 
   const handleCardClick = () => {
@@ -172,7 +184,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
         onClick={handleCardClick}
         className={`bg-white rounded-2xl w-full cursor-pointer hover:shadow-lg transition-shadow flex flex-col ${cardBorderClass}`}
       >
-        {/* HIGH PROFIT badge — gold crown strip */}
+        {/* HIGH PROFIT badge */}
         {isHighProfit && !signal.guaranteedHit && !signal.superHighProfit && (
           <div
             className="rounded-t-2xl px-4 py-1.5 flex items-center justify-between"
@@ -190,7 +202,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
           </div>
         )}
 
-        {/* GUARANTEED HIT badge — pulsing green/gold */}
+        {/* GUARANTEED HIT badge */}
         {signal.guaranteedHit && (
           <div
             className="rounded-t-2xl px-4 py-2 flex items-center justify-between animate-pulse"
@@ -210,7 +222,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
           </div>
         )}
 
-        {/* 100x POTENTIAL badge — purple/violet for super high profit */}
+        {/* 100x POTENTIAL badge */}
         {signal.superHighProfit && !signal.guaranteedHit && (
           <div
             className="rounded-t-2xl px-4 py-2 flex items-center justify-between"
@@ -333,7 +345,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
           </div>
         </div>
 
-        {/* Profit Badge — full width row below price grid */}
+        {/* Profit Badge */}
         <div className="px-4 pb-2">
           <div
             className="w-full text-center py-1.5 rounded-xl font-bold text-sm"
@@ -395,7 +407,6 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
               : `~${signal.estimatedHours.toFixed(1)}h`}
           </span>
 
-          {/* Speed badge */}
           {isSuperFast && (
             <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-orange-100 text-orange-700 border border-orange-400 animate-pulse">
               ⚡⚡ VERY FAST
@@ -417,7 +428,6 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
             </span>
           )}
 
-          {/* Surety Score badge */}
           {signal.suretyScore !== undefined && (
             <span
               className={`text-xs px-2 py-0.5 rounded-full font-bold ${
@@ -427,7 +437,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
                     ? "bg-teal-50 text-teal-700"
                     : "bg-gray-100 text-gray-500"
               }`}
-              title="Surety Score: how likely this trade hits TP (TP prob + confidence + indicators)"
+              title="Surety Score: how likely this trade hits TP"
             >
               🎯 {signal.suretyScore} Surety
             </span>
@@ -438,7 +448,9 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
         {signal.aiEnriched && signal.aiRating && signal.aiRating !== "Skip" && (
           <div className="px-4 pb-2">
             <div
-              className={`w-full rounded-xl px-3 py-2 flex items-center justify-between ${signal.aiRating === "Strong Buy" ? "animate-pulse-slow" : ""}`}
+              className={`w-full rounded-xl px-3 py-2 flex items-center justify-between ${
+                signal.aiRating === "Strong Buy" ? "animate-pulse-slow" : ""
+              }`}
               style={{
                 background:
                   signal.aiRating === "Strong Buy"
@@ -459,7 +471,13 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
               }}
             >
               <span
-                className={`font-bold text-xs flex items-center gap-1.5 ${signal.aiRating === "Strong Buy" ? "text-green-700" : signal.aiRating === "Buy" ? "text-blue-700" : "text-amber-700"}`}
+                className={`font-bold text-xs flex items-center gap-1.5 ${
+                  signal.aiRating === "Strong Buy"
+                    ? "text-green-700"
+                    : signal.aiRating === "Buy"
+                      ? "text-blue-700"
+                      : "text-amber-700"
+                }`}
               >
                 {signal.aiRating === "Strong Buy" ? (
                   <>
@@ -475,7 +493,11 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
               </span>
               {signal.aiConfidence !== undefined && (
                 <span
-                  className={`text-[10px] font-bold ${signal.aiRating === "Strong Buy" ? "text-green-700" : "text-gray-500"}`}
+                  className={`text-[10px] font-bold ${
+                    signal.aiRating === "Strong Buy"
+                      ? "text-green-700"
+                      : "text-gray-500"
+                  }`}
                 >
                   {signal.aiConfidence}% AI conf
                 </span>
@@ -516,9 +538,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
                     ? "linear-gradient(90deg, #C9A84C, #E8C97A)"
                     : undefined,
                 }}
-                className={`h-1.5 rounded-full transition-all ${
-                  isHighProfit ? "" : "bg-blue-500"
-                }`}
+                className={`h-1.5 rounded-full transition-all ${isHighProfit ? "" : "bg-blue-500"}`}
               />
             </div>
           </div>
@@ -560,7 +580,7 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
         </div>
 
         {/* Buttons */}
-        <div className="px-4 pb-4 flex gap-2 mt-auto">
+        <div className="px-4 pb-3 flex gap-2 mt-auto">
           <Button
             size="sm"
             variant="outline"
@@ -569,6 +589,23 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
             onClick={handleTrack}
           >
             Track Trade
+          </Button>
+          <Button
+            size="sm"
+            data-ocid="signal.test_button"
+            className="text-xs font-bold px-3"
+            style={{
+              background: "linear-gradient(135deg, #0e7490 0%, #0891b2 100%)",
+              color: "#fff",
+              border: "1px solid #0e7490",
+              boxShadow: "0 2px 8px rgba(14,116,144,0.25)",
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setTestModalOpen(true);
+            }}
+          >
+            🧪 Test
           </Button>
           <Button
             size="sm"
@@ -583,6 +620,43 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
             AI Chat
           </Button>
         </div>
+
+        {/* Test result badge */}
+        {testResult && (
+          <div className="px-4 pb-3">
+            <div
+              data-ocid="signal.test_result"
+              className="w-full text-center py-1.5 rounded-xl text-xs font-bold"
+              style={{
+                background:
+                  testResult.verdict === "pass"
+                    ? "rgba(22,163,74,0.1)"
+                    : testResult.verdict === "uncertain"
+                      ? "rgba(245,158,11,0.1)"
+                      : "rgba(220,38,38,0.1)",
+                border: `1px solid ${
+                  testResult.verdict === "pass"
+                    ? "rgba(22,163,74,0.3)"
+                    : testResult.verdict === "uncertain"
+                      ? "rgba(245,158,11,0.3)"
+                      : "rgba(220,38,38,0.3)"
+                }`,
+                color:
+                  testResult.verdict === "pass"
+                    ? "#15803d"
+                    : testResult.verdict === "uncertain"
+                      ? "#92400e"
+                      : "#991b1b",
+              }}
+            >
+              {testResult.verdict === "pass"
+                ? `✅ Test: ${testResult.score}/12 — Ready to Trade`
+                : testResult.verdict === "uncertain"
+                  ? `⚠️ Test: ${testResult.score}/12 — Risky`
+                  : `❌ Test: ${testResult.score}/12 — Avoid`}
+            </div>
+          </div>
+        )}
 
         {/* Chat panel */}
         <AnimatePresence>
@@ -645,6 +719,13 @@ export default function LiveSignalCard({ signal, index = 0 }: Props) {
         signal={signal}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
+      />
+
+      <TradeTestModal
+        signal={signal}
+        open={testModalOpen}
+        onClose={handleTestClose}
+        onConfirm={handleTestConfirm}
       />
     </>
   );
