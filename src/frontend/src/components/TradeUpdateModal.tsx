@@ -206,75 +206,101 @@ export default function TradeUpdateModal({
     setStage(0);
     const coinId = trade.coinId ?? coinName.toLowerCase();
 
-    // Run OHLCV fetch + chart analysis in parallel
-    const [live, chartAnalysis] = await Promise.all([
-      fetchLiveOHLC(coinId).then((res) => {
-        setStage(1);
-        return res;
-      }),
-      (async () => {
-        setStage(3);
-        await delay(200);
-        setStage(4);
-        const ca = await runChartPatternAnalysis(
-          coinId,
-          coinName,
-          currentPrice,
-          trade.entryPrice,
-          trade.takeProfit,
-          trade.stopLoss,
-        );
+    const analysisTimeout = setTimeout(() => {
+      if (abortRef.current) return;
+      setLoading(false);
+      setChartLoading(false);
+    }, 20000);
+
+    try {
+      // Run OHLCV fetch + chart analysis in parallel
+      let live: Awaited<ReturnType<typeof fetchLiveOHLC>> = null;
+      let chartAnalysis: Awaited<
+        ReturnType<typeof runChartPatternAnalysis>
+      > | null = null;
+      try {
+        const results = await Promise.all([
+          fetchLiveOHLC(coinId).then((res) => {
+            setStage(1);
+            return res;
+          }),
+          (async () => {
+            setStage(3);
+            await delay(200);
+            setStage(4);
+            const ca = await runChartPatternAnalysis(
+              coinId,
+              coinName,
+              currentPrice,
+              trade.entryPrice,
+              trade.takeProfit,
+              trade.stopLoss,
+            );
+            setChartLoading(false);
+            return ca;
+          })(),
+        ]);
+        live = results[0];
+        chartAnalysis = results[1];
+      } catch {
         setChartLoading(false);
-        return ca;
-      })(),
-    ]);
+      }
 
-    if (abortRef.current) return;
+      if (abortRef.current) return;
 
-    await delay(400);
-    if (abortRef.current) return;
-    const baseChecks = runTradeChecks(trade, live);
-    const trackedChecks = buildTrackedChecks(trade, currentPrice, live);
-    const allChecks = [...baseChecks, ...trackedChecks];
+      await delay(400);
+      if (abortRef.current) return;
+      const baseChecks = runTradeChecks(trade, live);
+      const trackedChecks = buildTrackedChecks(trade, currentPrice, live);
+      const allChecks = [...baseChecks, ...trackedChecks];
 
-    setStage(2);
-    await delay(500);
-    if (abortRef.current) return;
+      setStage(2);
+      await delay(500);
+      if (abortRef.current) return;
 
-    setStage(5);
-    await delay(400);
-    if (abortRef.current) return;
+      setStage(5);
+      await delay(400);
+      if (abortRef.current) return;
 
-    const liveRsi = live?.rsi ?? trade.rsiValue;
-    const base = computeTestResult(trade, allChecks, liveRsi);
-    const checksVerdict = deriveTrackedVerdict(base, currentPrice, trade, live);
-    const finalVerdict = chartAnalysis
-      ? combineVerdicts(checksVerdict, chartAnalysis.verdict)
-      : checksVerdict;
+      const liveRsi = live?.rsi ?? trade.rsiValue;
+      const base = computeTestResult(trade, allChecks, liveRsi);
+      const checksVerdict = deriveTrackedVerdict(
+        base,
+        currentPrice,
+        trade,
+        live,
+      );
+      const finalVerdict = chartAnalysis
+        ? combineVerdicts(checksVerdict, chartAnalysis.verdict)
+        : checksVerdict;
 
-    const tpDistPct = ((trade.takeProfit - currentPrice) / currentPrice) * 100;
-    const slDistPct = ((currentPrice - trade.stopLoss) / currentPrice) * 100;
-    const priceVelocity = live?.priceVelocity ?? 0;
+      const tpDistPct =
+        ((trade.takeProfit - currentPrice) / currentPrice) * 100;
+      const slDistPct = ((currentPrice - trade.stopLoss) / currentPrice) * 100;
+      const priceVelocity = live?.priceVelocity ?? 0;
 
-    const profitAtTPFromCurrent = 10 * (tpDistPct / 100);
-    const lossAtSLFromCurrent = 10 * (slDistPct / 100);
-    const expectedValueFromCurrent =
-      profitAtTPFromCurrent * (base.tpProbability / 100) -
-      lossAtSLFromCurrent * (base.slProbability / 100);
+      const profitAtTPFromCurrent = 10 * (tpDistPct / 100);
+      const lossAtSLFromCurrent = 10 * (slDistPct / 100);
+      const expectedValueFromCurrent =
+        profitAtTPFromCurrent * (base.tpProbability / 100) -
+        lossAtSLFromCurrent * (base.slProbability / 100);
 
-    setResult({
-      ...base,
-      trackedVerdict: finalVerdict,
-      pnlPct,
-      tpDistPct,
-      slDistPct,
-      priceVelocity,
-      profitAtTPFromCurrent,
-      lossAtSLFromCurrent,
-      expectedValueFromCurrent,
-      chartAnalysis,
-    });
-    setLoading(false);
+      setResult({
+        ...base,
+        trackedVerdict: finalVerdict,
+        pnlPct,
+        tpDistPct,
+        slDistPct,
+        priceVelocity,
+        profitAtTPFromCurrent,
+        lossAtSLFromCurrent,
+        expectedValueFromCurrent,
+        chartAnalysis,
+      });
+      setLoading(false);
+    } finally {
+      clearTimeout(analysisTimeout);
+    }
   }
 
   const verdictConfig: Record<
