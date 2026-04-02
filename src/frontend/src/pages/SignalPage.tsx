@@ -13,56 +13,23 @@ interface Props {
   icon: string;
 }
 
-type SortKey =
-  | "composite"
-  | "profit"
-  | "confidence"
-  | "tpProbability"
-  | "surety"
-  | "guaranteedFirst"
-  | "strongBuyFirst"
-  | "noLoss";
+type SortKey = "profit" | "surety" | "tpHitting";
 
 const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
   {
-    key: "composite",
-    label: "Composite (Recommended)",
-    desc: "Profit · Confidence · TP Probability",
+    key: "profit",
+    label: "💰 Highest Profit",
+    desc: "All signals sorted by profit % — highest to lowest",
   },
   {
     key: "surety",
-    label: "🎯 Highest Surety (Will Hit TP)",
-    desc: "Most certain to hit TP — optimal momentum window (not exhausted pumps)",
+    label: "🛡️ Surety — Surely Hits TP",
+    desc: "AI confirmed · No dump risk · RSI safe · Must hit TP — all others hidden",
   },
   {
-    key: "profit",
-    label: "Highest Profit %",
-    desc: "Largest gain if TP is hit",
-  },
-  {
-    key: "confidence",
-    label: "Highest Confidence",
-    desc: "Strongest signal score",
-  },
-  {
-    key: "tpProbability",
-    label: "Best TP Probability",
-    desc: "Most likely to hit take-profit",
-  },
-  {
-    key: "guaranteedFirst",
-    label: "Guaranteed Hits First",
-    desc: "GUARANTEED HIT signals first, sorted by highest profit",
-  },
-  {
-    key: "strongBuyFirst",
-    label: "🤖 AI: Strong Buy First",
-    desc: "AI-validated Strong Buy signals first — highest certainty to hit TP",
-  },
-  {
-    key: "noLoss",
-    label: "🛡️ Surely Hits TP (No Dump)",
-    desc: "Only Low dump risk · RSI 42–68 · MACD positive · 5/6 indicators · room to run",
+    key: "tpHitting",
+    label: "🚀 TP Hitting — Only Pumping Now",
+    desc: "Actively pumping toward TP right now · No dump · No pullback · Will hit TP",
   },
 ];
 
@@ -70,104 +37,75 @@ function profitPct(s: Signal) {
   return (s.takeProfit - s.entryPrice) / (s.entryPrice || 1);
 }
 
-function compositeScore(s: Signal) {
-  return (
-    profitPct(s) * 0.4 +
-    (s.confidence / 100) * 0.3 +
-    ((s.tpProbability ?? 0) / 100) * 0.3
-  );
-}
-
 function sortSignals(signals: Signal[], key: SortKey): Signal[] {
   const arr = signals.slice();
-  switch (key) {
-    case "surety": {
-      const suretyFiltered = arr.filter(
-        (s) =>
-          s.estimatedHours <= 12 &&
-          s.confidence >= 82 &&
-          s.tpProbability >= 77 &&
-          s.momentum >= 1 &&
-          s.momentum <= 9,
-      );
-      const source = suretyFiltered.length >= 3 ? suretyFiltered : arr;
-      return source.sort((a, b) => (b.suretyScore ?? 0) - (a.suretyScore ?? 0));
-    }
-    case "profit":
-      return arr.sort((a, b) => profitPct(b) - profitPct(a));
-    case "confidence":
-      return arr.sort((a, b) => b.confidence - a.confidence);
-    case "tpProbability":
-      return arr.sort(
-        (a, b) => (b.tpProbability ?? 0) - (a.tpProbability ?? 0),
-      );
-    case "guaranteedFirst": {
-      const guaranteed = arr
-        .filter((s) => s.guaranteedHit)
-        .sort((a, b) => profitPct(b) - profitPct(a));
-      const rest = arr.filter((s) => !s.guaranteedHit);
-      return [...guaranteed, ...rest];
-    }
-    case "strongBuyFirst": {
-      const strongBuy = arr
-        .filter((s) => s.aiRating === "Strong Buy" && s.guaranteedHit)
-        .sort((a, b) => profitPct(b) - profitPct(a));
-      const strongBuyNoGuarantee = arr
-        .filter((s) => s.aiRating === "Strong Buy" && !s.guaranteedHit)
-        .sort((a, b) => profitPct(b) - profitPct(a));
-      const rest = arr.filter((s) => s.aiRating !== "Strong Buy");
-      return [...strongBuy, ...strongBuyNoGuarantee, ...rest];
-    }
-    case "noLoss": {
-      // Multi-layer anti-dump filter:
-      // 1. dumpRisk must be "Low" (not near resistance, not overbought, MACD positive)
-      // 2. RSI in healthy zone — not overbought (signals store rsiValue)
-      // 3. Momentum in early-move window 0.5–8% (not exhausted)
-      // 4. Strong indicator alignment (5 or 6 out of 6)
-      // 5. High confidence + TP probability
-      // 6. Estimated to hit within 10 hours
-      // 7. Has room to run: distToHigh24h > 2%
-      const noLossFiltered = arr.filter(
-        (s) =>
-          s.dumpRisk === "Low" &&
-          s.rsiValue >= 42 &&
-          s.rsiValue <= 68 &&
-          s.momentum >= 0.5 &&
-          s.momentum <= 8 &&
-          s.indicatorsAligned >= 5 &&
-          s.confidence >= 85 &&
-          (s.tpProbability ?? 0) >= 82 &&
-          (s.suretyScore ?? 0) >= 65 &&
-          s.estimatedHours <= 10 &&
-          (s.distToHigh24h === undefined || s.distToHigh24h > 0.02),
-      );
 
-      // Fallback: relax to just dumpRisk=Low + healthy RSI + 5 indicators
-      const fallback = arr.filter(
-        (s) =>
-          s.dumpRisk === "Low" &&
-          s.rsiValue >= 40 &&
-          s.rsiValue <= 70 &&
-          s.indicatorsAligned >= 5 &&
-          s.confidence >= 82 &&
-          (s.tpProbability ?? 0) >= 78,
-      );
-
-      // Wider fallback: just dumpRisk=Low if still too few
-      const wideFallback = arr.filter((s) => s.dumpRisk === "Low");
-
-      const source =
-        noLossFiltered.length >= 2
-          ? noLossFiltered
-          : fallback.length >= 2
-            ? fallback
-            : wideFallback;
-
-      return source.sort((a, b) => profitPct(b) - profitPct(a));
-    }
-    default:
-      return arr.sort((a, b) => compositeScore(b) - compositeScore(a));
+  if (key === "profit") {
+    return arr.sort((a, b) => profitPct(b) - profitPct(a));
   }
+
+  if (key === "surety") {
+    const safe = arr.filter((s) => {
+      const dumpOk = s.dumpRisk === "Low";
+      const rsiOk = !s.rsiValue || (s.rsiValue >= 42 && s.rsiValue <= 68);
+      const momentumOk = s.momentum >= 0.5 && s.momentum <= 9;
+      const indicatorsOk = s.indicatorsAligned >= 5;
+      const confidenceOk = s.confidence >= 85;
+      const tpOk = (s.tpProbability ?? 0) >= 80;
+      const timeOk = s.estimatedHours <= 16;
+      const aiOk = s.aiRating === "Strong Buy" || s.aiRating === "Buy";
+      return (
+        dumpOk &&
+        rsiOk &&
+        momentumOk &&
+        indicatorsOk &&
+        confidenceOk &&
+        tpOk &&
+        timeOk &&
+        aiOk
+      );
+    });
+    const source =
+      safe.length >= 1
+        ? safe
+        : arr.filter(
+            (s) =>
+              s.dumpRisk === "Low" &&
+              (s.aiRating === "Strong Buy" || s.aiRating === "Buy"),
+          );
+    return (source.length >= 1 ? source : arr).sort(
+      (a, b) => profitPct(b) - profitPct(a),
+    );
+  }
+
+  // tpHitting: only coins actively pumping toward TP right now with zero dump risk
+  if (key === "tpHitting") {
+    const hitting = arr.filter((s) => {
+      const dumpOk = s.dumpRisk === "Low";
+      const rsiOk = s.rsiValue >= 45 && s.rsiValue <= 68;
+      const momentumOk = s.momentum >= 1 && s.momentum <= 9; // active but not exhausted
+      const macdOk = s.macdHistogram > 0; // must be positively trending
+      const roomToRun = (s.distToHigh24h ?? 0) > 0.03; // at least 3% room before resistance
+      const indicatorsOk = s.indicatorsAligned >= 5;
+      const timeOk = s.estimatedHours <= 16;
+      const aiOk = s.aiRating === "Strong Buy" || s.aiRating === "Buy";
+      const bullish = s.trendDirection === "bullish";
+      return (
+        dumpOk &&
+        rsiOk &&
+        momentumOk &&
+        macdOk &&
+        roomToRun &&
+        indicatorsOk &&
+        timeOk &&
+        aiOk &&
+        bullish
+      );
+    });
+    return hitting.sort((a, b) => profitPct(b) - profitPct(a));
+  }
+
+  return arr;
 }
 
 function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
@@ -203,7 +141,8 @@ function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
       return signals
         .filter((s) => {
           const pp = (s.takeProfit - s.entryPrice) / (s.entryPrice || 1);
-          return pp > 0.1;
+          // Require >10% profit AND minimum surety score of 70
+          return pp > 0.1 && s.suretyScore >= 70;
         })
         .sort((a, b) => profitPct(b) - profitPct(a));
 
@@ -215,7 +154,7 @@ function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
 export default function SignalPage({ type, title, subtitle, icon }: Props) {
   const { signals, scanning, progress } = useScan();
   const { isLocked } = useCredits();
-  const [sortKey, setSortKey] = useState<SortKey>("composite");
+  const [sortKey, setSortKey] = useState<SortKey>("profit");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -268,6 +207,20 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
     );
   }
 
+  const sortBtnColor =
+    sortKey === "surety"
+      ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+      : sortKey === "tpHitting"
+        ? "border-blue-400 bg-blue-50 text-blue-700"
+        : "border-[#C9A84C] bg-amber-50 text-amber-700";
+
+  const sortBtnLabel =
+    sortKey === "surety"
+      ? "🛡️ Surety"
+      : sortKey === "tpHitting"
+        ? "🚀 TP Hitting"
+        : "💰 Highest Profit";
+
   return (
     <div className="min-h-screen bg-white py-6 px-4">
       <div className="max-w-7xl mx-auto">
@@ -286,10 +239,39 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
               : subtitle}
           </p>
 
+          {/* Active filter banners */}
+          <AnimatePresence>
+            {sortKey === "surety" && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mb-3 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200"
+              >
+                <span className="text-emerald-600 text-sm font-semibold">
+                  🛡️ Only AI-confirmed, no-dump trades shown — all others hidden
+                </span>
+              </motion.div>
+            )}
+            {sortKey === "tpHitting" && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="mb-3 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 border border-blue-200"
+              >
+                <span className="text-blue-700 text-sm font-semibold">
+                  🚀 Only actively pumping trades shown — no dump risk, no
+                  pullback, must hit TP
+                </span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Stats + Sort row */}
           <div className="flex flex-wrap items-center gap-3">
             <span className="bg-green-50 text-green-700 px-2 py-1 rounded-full font-medium text-xs">
-              {filtered.length} signals found
+              {sorted.length} signals
             </span>
             <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded-full font-medium text-xs">
               {progress.scanned} coins scanned
@@ -299,21 +281,6 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                 Updating...
               </span>
             )}
-            {sortKey === "surety" && (
-              <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded-full font-medium text-xs border border-emerald-200">
-                🎯 Optimal momentum window (1–9%) — lowest dump risk
-              </span>
-            )}
-            {sortKey === "strongBuyFirst" && (
-              <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded-full font-medium text-xs border border-purple-200">
-                🤖 AI: Strong Buy — highest certainty signals shown first
-              </span>
-            )}
-            {sortKey === "noLoss" && (
-              <span className="bg-rose-50 text-rose-700 px-2 py-1 rounded-full font-medium text-xs border border-rose-200">
-                🛡️ Low dump risk · RSI safe · room to run — all others hidden
-              </span>
-            )}
 
             {/* Sort button */}
             <div ref={dropdownRef} className="relative ml-auto">
@@ -321,26 +288,10 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                 type="button"
                 data-ocid="signal.sort_button"
                 onClick={() => setDropdownOpen((v) => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium shadow-sm transition-colors ${
-                  sortKey === "surety"
-                    ? "border-emerald-400 bg-emerald-50 text-emerald-700"
-                    : sortKey === "strongBuyFirst"
-                      ? "border-purple-400 bg-purple-50 text-purple-700"
-                      : sortKey === "noLoss"
-                        ? "border-rose-400 bg-rose-50 text-rose-700"
-                        : "border-[#0A1628]/20 bg-white text-[#0A1628] hover:border-[#C9A84C] hover:text-[#C9A84C]"
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium shadow-sm transition-colors ${sortBtnColor}`}
               >
                 <SlidersHorizontal size={13} />
-                <span>
-                  {sortKey === "surety"
-                    ? "🎯 Surety"
-                    : sortKey === "strongBuyFirst"
-                      ? "🤖 Strong Buy"
-                      : sortKey === "noLoss"
-                        ? "🛡️ No Dump"
-                        : "Sort"}
-                </span>
+                <span>{sortBtnLabel}</span>
                 <ChevronDown
                   size={12}
                   className={`transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
@@ -355,7 +306,7 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -6, scale: 0.97 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-2 w-72 bg-white border border-[#0A1628]/10 rounded-xl shadow-xl z-50 overflow-hidden"
+                    className="absolute right-0 top-full mt-2 w-80 bg-white border border-[#0A1628]/10 rounded-xl shadow-xl z-50 overflow-hidden"
                   >
                     <div className="px-4 py-2.5 border-b border-[#0A1628]/10 bg-[#0A1628]/[0.03]">
                       <p className="text-[#0A1628] font-semibold text-xs uppercase tracking-wider">
@@ -365,9 +316,30 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                     <div className="py-1.5">
                       {SORT_OPTIONS.map((opt) => {
                         const selected = sortKey === opt.key;
-                        const isSurety = opt.key === "surety";
-                        const isStrongBuy = opt.key === "strongBuyFirst";
-                        const isNoLoss = opt.key === "noLoss";
+                        const colorClass =
+                          opt.key === "surety"
+                            ? {
+                                bg: "bg-emerald-50",
+                                hov: "hover:bg-emerald-50/60",
+                                dot: "border-emerald-500 bg-emerald-500/10",
+                                fill: "bg-emerald-500",
+                                text: "text-emerald-600",
+                              }
+                            : opt.key === "tpHitting"
+                              ? {
+                                  bg: "bg-blue-50",
+                                  hov: "hover:bg-blue-50/60",
+                                  dot: "border-blue-500 bg-blue-500/10",
+                                  fill: "bg-blue-500",
+                                  text: "text-blue-700",
+                                }
+                              : {
+                                  bg: "bg-amber-50",
+                                  hov: "hover:bg-amber-50",
+                                  dot: "border-[#C9A84C] bg-[#C9A84C]/10",
+                                  fill: "bg-[#C9A84C]",
+                                  text: "text-amber-700",
+                                };
                         return (
                           <button
                             type="button"
@@ -378,61 +350,26 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                               setDropdownOpen(false);
                             }}
                             className={`w-full flex items-start gap-3 px-4 py-2.5 transition-colors text-left ${
-                              isSurety
-                                ? selected
-                                  ? "bg-emerald-50"
-                                  : "hover:bg-emerald-50/60"
-                                : isStrongBuy
-                                  ? selected
-                                    ? "bg-purple-50"
-                                    : "hover:bg-purple-50/60"
-                                  : isNoLoss
-                                    ? selected
-                                      ? "bg-rose-50"
-                                      : "hover:bg-rose-50/60"
-                                    : "hover:bg-amber-50"
+                              selected ? colorClass.bg : colorClass.hov
                             }`}
                           >
-                            {/* Radio dot */}
                             <span
                               className={`mt-0.5 flex-shrink-0 w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${
                                 selected
-                                  ? isSurety
-                                    ? "border-emerald-500 bg-emerald-500/10"
-                                    : isStrongBuy
-                                      ? "border-purple-500 bg-purple-500/10"
-                                      : isNoLoss
-                                        ? "border-rose-500 bg-rose-500/10"
-                                        : "border-[#C9A84C] bg-[#C9A84C]/10"
+                                  ? colorClass.dot
                                   : "border-[#0A1628]/25"
                               }`}
                             >
                               {selected && (
                                 <span
-                                  className={`w-2 h-2 rounded-full block ${
-                                    isSurety
-                                      ? "bg-emerald-500"
-                                      : isStrongBuy
-                                        ? "bg-purple-500"
-                                        : isNoLoss
-                                          ? "bg-rose-500"
-                                          : "bg-[#C9A84C]"
-                                  }`}
+                                  className={`w-2 h-2 rounded-full block ${colorClass.fill}`}
                                 />
                               )}
                             </span>
                             <div>
                               <p
                                 className={`text-xs font-semibold leading-tight ${
-                                  selected
-                                    ? isSurety
-                                      ? "text-emerald-600"
-                                      : isStrongBuy
-                                        ? "text-purple-600"
-                                        : isNoLoss
-                                          ? "text-rose-600"
-                                          : "text-[#C9A84C]"
-                                    : "text-[#0A1628]"
+                                  selected ? colorClass.text : "text-[#0A1628]"
                                 }`}
                               >
                                 {opt.label}
@@ -452,11 +389,9 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                           className={`font-medium ${
                             sortKey === "surety"
                               ? "text-emerald-600"
-                              : sortKey === "strongBuyFirst"
-                                ? "text-purple-600"
-                                : sortKey === "noLoss"
-                                  ? "text-rose-600"
-                                  : "text-[#C9A84C]"
+                              : sortKey === "tpHitting"
+                                ? "text-blue-700"
+                                : "text-amber-700"
                           }`}
                         >
                           {activeSortLabel}
@@ -476,13 +411,15 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
             className="text-center py-16 text-[#0A1628]/40"
           >
             <div className="text-5xl mb-4">{icon}</div>
-            <div className="font-medium text-lg mb-1">
-              No signals available yet
-            </div>
+            <div className="font-medium text-lg mb-1">No signals available</div>
             <div className="text-sm">
               {scanning
                 ? "Scanning in progress..."
-                : "Markets are being analyzed. Try rescanning."}
+                : sortKey === "tpHitting"
+                  ? "No actively-pumping, no-dump trades found right now. Try rescanning or switch to Highest Profit view."
+                  : sortKey === "surety"
+                    ? "No AI-confirmed, no-dump trades found. Try rescanning or switch to Highest Profit view."
+                    : "Markets are being analyzed. Try rescanning."}
             </div>
           </div>
         ) : (

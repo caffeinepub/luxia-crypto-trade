@@ -297,7 +297,7 @@ export default function TrackingPage() {
   // Live price updates every 60 seconds (interval only — initial call is in load())
   useEffect(() => {
     if (trades.length === 0) return;
-    const interval = setInterval(() => fetchAndResolvePrices(trades), 60000);
+    const interval = setInterval(() => fetchAndResolvePrices(trades), 10000);
     return () => clearInterval(interval);
   }, [trades, fetchAndResolvePrices]);
 

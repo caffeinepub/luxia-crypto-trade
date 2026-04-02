@@ -509,6 +509,11 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       Math.min(momentum, 20) * 0.15 +
       (profile.wins - profile.losses) * 0.5;
 
+    // Global anti-dump gate: skip signals that are likely to dump or reverse
+    const isHighDump = dumpRisk === "High";
+    const isMediumWithWeakMacd = dumpRisk === "Medium" && macd.histogram < 0;
+    if (isHighDump || isMediumWithWeakMacd) continue;
+
     candidates.push({
       id: `${coin.symbol}-${hourSeed}`,
       symbol: coin.pairSymbol,

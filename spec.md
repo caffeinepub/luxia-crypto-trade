@@ -1,30 +1,28 @@
 # Luxia Crypto Trade
 
 ## Current State
-Elite section exists with basic filters (90%+ confidence, 88%+ TP probability, low dump risk, 5–6 indicators, NO TRADE screen). Missing: HH/HL trend structure, pullback-only entry, 1–2 trade session cap, R:R 1:1.5 enforcement, news avoidance, consecutive direction block.
+- SignalPage has two sort options: "Highest Profit" and "Surety"
+- Signal engine generates all signals with dumpRisk scored but no global anti-dump/pullback gate on the raw signal list shown on page
+- SuperHighProfitPage shows all signals with >10% TP, including low surety ones
+- TrackingPage updates live prices every 60 seconds (too slow)
 
 ## Requested Changes (Diff)
 
 ### Add
-- Higher highs / lower lows trend structure check using price history (at least 2 HH+HL confirmations for LONG)
-- Pullback/retest detection: entry price must be within 1% of a recent support/resistance level, not at a breakout high
-- Session cap: maximum 2 Elite signals shown per scan session; if 2 are already shown, display "SESSION FULL — Max 2 Trades Reached"
-- Minimum R:R 1:1.5 per signal (TP distance must be at least 1.5× SL distance)
-- News event filter: suppress Elite signals for any coin trending in recent negative/major news from the news feed
-- Consecutive direction block: if last Elite signal shown was a BUY, a second consecutive BUY is blocked unless first was closed
-- Detailed "NO TRADE" reason message (e.g., "Market is sideways", "No pullback entry available", "Session cap reached", "News risk detected")
-- Each Elite card shows: R:R ratio badge, trend structure label ("HH/HL Confirmed"), entry type ("Pullback Entry"), and session trade counter ("Trade 1 of 2")
+- New sort option "🚀 TP Hitting" on all signal pages — when selected, shows ONLY signals actively pumping toward TP with zero dump/pullback risk
+- TP Hitting criteria: momentum 1–9%, RSI 45–68, MACD histogram positive (>0), distToHigh24h > 3% (room to run), dumpRisk=Low, aiRating Strong Buy or Buy, estimatedHours ≤ 16, indicatorsAligned >= 5, trendDirection = bullish
+- Sorted highest profit % first
 
 ### Modify
-- Elite signal filter function to enforce all 5 rule sets
-- Elite page to show session counter and NO TRADE reason screen
+- **Global signal gate (signalEngine.ts):** Add a final hard gate before pushing to candidates: skip any signal where dumpRisk is High OR (dumpRisk is Medium AND macdHistogram < 0). This ensures every signal displayed has at minimum a non-High dump risk with positive MACD momentum.
+- **SuperHighProfitPage / SignalPage superHighProfit filter:** Add minimum suretyScore >= 70 filter for superHighProfit section
+- **TrackingPage:** Reduce live price update interval from 60,000ms to 10,000ms for near-real-time tracking
 
 ### Remove
 - Nothing removed
 
 ## Implementation Plan
-1. Upgrade Elite signal scoring: add HH/HL trend check, pullback detection, R:R 1:1.5 gate, news suppression, consecutive direction block
-2. Add session cap logic (max 2 per session, resets on rescan)
-3. Upgrade NO TRADE screen to show specific reason
-4. Add Elite card badges: R:R ratio, trend structure, entry type, session counter
-5. Wire all changes into the existing ElitePage/Elite signal section
+1. signalEngine.ts: Add hard gate — skip coins where dumpRisk === 'High' OR (dumpRisk === 'Medium' && macdHistogram < 0)
+2. SignalPage.tsx: Add SortKey 'tpHitting', add to SORT_OPTIONS array, add sortSignals case that filters by TP Hitting criteria and sorts by profit
+3. SuperHighProfit filter in filterSignals: add suretyScore >= 70 requirement
+4. TrackingPage.tsx: Change 60000 → 10000 in the setInterval for live price fetching
