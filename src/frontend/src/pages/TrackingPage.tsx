@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import TradeDetailModal from "../components/TradeDetailModal";
+import TradeUpdateModal from "../components/TradeUpdateModal";
 import { useAuth } from "../context/AuthContext";
 import { analyzeTrackedTrade, chatWithAI } from "../services/ai";
 import { getLearningStats, recordOutcome } from "../services/aiLearning";
@@ -70,6 +71,9 @@ export default function TrackingPage() {
   >({});
 
   const [learningStats, setLearningStats] = useState(getLearningStats);
+  const [updateModalTrade, setUpdateModalTrade] = useState<TrackedTrade | null>(
+    null,
+  );
 
   // Persist helper — saves to localStorage + backend
   const persistTrades = useCallback(
@@ -1038,6 +1042,23 @@ export default function TrackingPage() {
 
                       <button
                         type="button"
+                        data-ocid={`tracking.update_button.${i + 1}`}
+                        className="mt-2 w-full text-xs font-semibold rounded-xl py-2.5 transition-all flex items-center justify-center gap-2"
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #0A1628 0%, #14243e 100%)",
+                          color: "#C9A84C",
+                          boxShadow: "0 2px 8px rgba(10,22,40,0.25)",
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setUpdateModalTrade(trade);
+                        }}
+                      >
+                        🔄 Update Analysis
+                      </button>
+                      <button
+                        type="button"
                         data-ocid={`tracking.delete_button.${i + 1}`}
                         className="mt-2 w-full text-[10px] text-gray-300 hover:text-red-400 transition-colors text-center"
                         onClick={(e) => {
@@ -1061,6 +1082,18 @@ export default function TrackingPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
       />
+      {updateModalTrade && (
+        <TradeUpdateModal
+          trade={updateModalTrade}
+          currentPrice={
+            currentPrices[updateModalTrade.coinId ?? ""] ??
+            currentPrices[updateModalTrade.id] ??
+            updateModalTrade.entryPrice
+          }
+          open={!!updateModalTrade}
+          onClose={() => setUpdateModalTrade(null)}
+        />
+      )}
     </div>
   );
 }

@@ -214,7 +214,7 @@ function AppInner() {
       {/* Top Navigation Bar */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-[#0A1628]/10 shadow-sm">
         {/* Row 1: Hamburger + Brand + Rescan + Login */}
-        <div className="flex items-center h-14 px-4 gap-3">
+        <div className="flex items-center h-auto min-h-[3.5rem] px-4 py-2 gap-3">
           <button
             type="button"
             data-ocid="sidebar.toggle"
@@ -224,11 +224,12 @@ function AppInner() {
           >
             <Menu size={20} />
           </button>
-          <div className="flex flex-col leading-tight flex-1 min-w-0 overflow-hidden">
-            <span className="block truncate text-[#B8902A] font-bold text-sm tracking-widest uppercase">
+          {/* Brand — allows wrapping so full text is always visible */}
+          <div className="flex flex-col leading-tight flex-1">
+            <span className="text-[#B8902A] font-bold text-sm sm:text-base tracking-wide uppercase whitespace-normal break-words">
               Luxia Crypto Trade
             </span>
-            <span className="block truncate text-[#0A1628]/50 text-[9px] tracking-wider">
+            <span className="text-[#0A1628]/50 text-[10px] sm:text-[11px] tracking-wide whitespace-normal break-words">
               powered by Trezaria International
             </span>
           </div>
@@ -322,7 +323,7 @@ function AppInner() {
             >
               {/* Sidebar header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-[#0A1628]/8">
-                <span className="text-[#B8902A] font-bold text-sm tracking-widest uppercase">
+                <span className="text-[#B8902A] font-bold text-base tracking-widest uppercase">
                   Luxia
                 </span>
                 <button
