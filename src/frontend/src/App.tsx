@@ -133,7 +133,7 @@ function RescanButton() {
       {scanning
         ? `${progress.scanned}/${progress.total}`
         : aiEnriching
-          ? "🤖 AI Validating..."
+          ? "AI Validating..."
           : `Rescan${totalSessionScans > 0 ? ` (${totalSessionScans})` : ""}`}
     </button>
   );
@@ -224,11 +224,11 @@ function AppInner() {
           >
             <Menu size={20} />
           </button>
-          <div className="flex flex-col leading-tight flex-1 min-w-0">
-            <span className="text-[#B8902A] font-bold text-sm tracking-widest uppercase truncate">
+          <div className="flex flex-col leading-tight flex-1 min-w-0 overflow-hidden">
+            <span className="block truncate text-[#B8902A] font-bold text-sm tracking-widest uppercase">
               Luxia Crypto Trade
             </span>
-            <span className="text-[#0A1628]/50 text-[9px] tracking-wider">
+            <span className="block truncate text-[#0A1628]/50 text-[9px] tracking-wider">
               powered by Trezaria International
             </span>
           </div>
@@ -357,7 +357,7 @@ function AppInner() {
                       Credits
                     </div>
                     <div className="text-[#C9A84C] text-xs font-bold leading-tight">
-                      {isAdmin ? "∞ Unlimited" : `${credits}`}
+                      {isAdmin ? "Unlimited" : `${credits}`}
                     </div>
                   </div>
                   <div className="bg-white/[0.06] rounded-lg p-2">
@@ -376,7 +376,7 @@ function AppInner() {
                     Credits
                   </div>
                   <div className="text-[#C9A84C] text-xs font-bold">
-                    {isAdmin ? "∞ Unlimited" : `${credits} remaining`}
+                    {isAdmin ? "Unlimited" : `${credits} remaining`}
                   </div>
                 </div>
 
