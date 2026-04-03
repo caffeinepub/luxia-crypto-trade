@@ -77,7 +77,7 @@ async function fetchPage(page: number, retries = 3): Promise<CoinData[]> {
 export async function fetchMarketCoins(
   onProgress?: (loaded: number) => void,
 ): Promise<CoinData[]> {
-  const MAX_PAGES = 20;
+  const MAX_PAGES = 40;
   const allCoins: CoinData[] = [];
   const seenSymbols = new Set<string>();
   let emptyPages = 0;

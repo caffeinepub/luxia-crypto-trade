@@ -91,8 +91,6 @@ const TOP_TABS = [
   { id: "search" as Page, label: "SEARCH", Icon: Search, gold: false },
   { id: "tracking" as Page, label: "TRACKING", Icon: BookOpen, gold: false },
   { id: "founder" as Page, label: "FOUNDER", Icon: User, gold: false },
-  { id: "aiSkills" as Page, label: "AI SKILLS", Icon: Cpu, gold: false },
-  { id: "instructions" as Page, label: "GUIDE", Icon: FileText, gold: false },
 ];
 
 const SIDEBAR_TABS = [

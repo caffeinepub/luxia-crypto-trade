@@ -307,6 +307,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     }
 
     tpPct = Math.max(tpPct, 0.005);
+    if (tpPct >= 0.05) superHighProfit = true;
 
     const distToHigh24h = coin.high24h
       ? (coin.high24h - coin.price) / coin.price
@@ -559,7 +560,11 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     });
   }
 
-  candidates.sort((a, b) => b.score - a.score);
+  candidates.sort((a, b) => {
+    const aTpPct = (a.takeProfit - a.entryPrice) / (a.entryPrice || 1);
+    const bTpPct = (b.takeProfit - b.entryPrice) / (b.entryPrice || 1);
+    return bTpPct - aTpPct;
+  });
 
   const results: Signal[] = candidates.map(({ score: _score, ...s }) => s);
 
@@ -584,7 +589,7 @@ export async function enrichSignalsWithAI(
 ): Promise<Signal[]> {
   if (signals.length === 0) return signals;
 
-  const byComposite = signals.slice(0, 25);
+  const byComposite = signals.slice(0, 50);
   const byTPPct = [...signals]
     .filter((s) => !byComposite.includes(s))
     .sort((a, b) => {
@@ -592,12 +597,12 @@ export async function enrichSignalsWithAI(
       const bPct = (b.takeProfit - b.entryPrice) / (b.entryPrice || 1);
       return bPct - aPct;
     })
-    .slice(0, 15);
+    .slice(0, 30);
 
-  const top40 = [...byComposite, ...byTPPct];
-  const rest = signals.filter((s) => !top40.includes(s));
+  const top80 = [...byComposite, ...byTPPct];
+  const rest = signals.filter((s) => !top80.includes(s));
 
-  const validationInput = top40.map((s) => ({
+  const validationInput = top80.map((s) => ({
     symbol: s.symbol,
     confidence: s.confidence,
     tpProbability: s.tpProbability,
@@ -611,7 +616,7 @@ export async function enrichSignalsWithAI(
 
   const validations = await validateSignalsWithAI(validationInput);
 
-  const enriched = top40
+  const enriched = top80
     .map((signal) => {
       const v = validations.get(signal.symbol);
       if (!v) return { ...signal, aiEnriched: false };

@@ -33,7 +33,7 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
   const [signals, setSignals] = useState<Signal[]>([]);
   const [scanning, setScanning] = useState(false);
   const [aiEnriching, setAiEnriching] = useState(false);
-  const [progress, setProgress] = useState({ scanned: 0, total: 5000 });
+  const [progress, setProgress] = useState({ scanned: 0, total: 10000 });
   const [totalSessionScans, setTotalSessionScans] = useState(0);
   const [lastScan, setLastScan] = useState<Date | null>(null);
   const scanningRef = useRef(false);
@@ -61,11 +61,11 @@ export function ScanProvider({ children }: { children: React.ReactNode }) {
     scanningRef.current = true;
     setScanning(true);
     setAiEnriching(false);
-    setProgress({ scanned: 0, total: 5000 });
+    setProgress({ scanned: 0, total: 10000 });
 
     try {
       const coins = await fetchMarketCoins((loaded) => {
-        setProgress({ scanned: loaded, total: 5000 });
+        setProgress({ scanned: loaded, total: 10000 });
       });
 
       if (coins.length === 0) {
