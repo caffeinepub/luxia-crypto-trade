@@ -1,7 +1,5 @@
 import { Toaster } from "@/components/ui/sonner";
 import {
-  Activity,
-  BarChart3,
   BookOpen,
   CheckCircle,
   Cpu,
@@ -12,15 +10,14 @@ import {
   LogOut,
   Menu,
   RefreshCw,
-  Rocket,
   Search,
   Settings,
   Shield,
+  ShieldCheck,
   TrendingUp,
   User,
   UserCircle,
   X,
-  Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
@@ -37,6 +34,7 @@ import ActiveSignalsPage from "./pages/ActiveSignalsPage";
 import AdminPage from "./pages/AdminPage";
 import DashboardPage from "./pages/DashboardPage";
 import ElitePage from "./pages/ElitePage";
+import EliteSignalsPage from "./pages/EliteSignalsPage";
 import FastTradePage from "./pages/FastTradePage";
 import FounderPage from "./pages/FounderPage";
 import HighProfitPage from "./pages/HighProfitPage";
@@ -44,6 +42,7 @@ import HomePage from "./pages/HomePage";
 import InstructionsPage from "./pages/InstructionsPage";
 import NewsPage from "./pages/NewsPage";
 import PostPage from "./pages/PostPage";
+import PremiumSignalsPage from "./pages/PremiumSignalsPage";
 import ProfilePage from "./pages/ProfilePage";
 import SearchPage from "./pages/SearchPage";
 import SignalsPage from "./pages/SignalsPage";
@@ -60,6 +59,8 @@ export type Page =
   | "highProfit"
   | "superHighProfit"
   | "elite"
+  | "premiumSignals"
+  | "eliteSignals"
   | "search"
   | "tracking"
   | "founder"
@@ -74,35 +75,36 @@ export type Page =
   | "verifiedSignals";
 
 const TOP_TABS = [
-  { id: "home" as Page, label: "HOME", Icon: Home },
-  { id: "fast" as Page, label: "FAST TRADE", Icon: Zap },
-  { id: "tradeNow" as Page, label: "TRADE NOW", Icon: TrendingUp },
-  { id: "active" as Page, label: "ACTIVE SIGNALS", Icon: Activity },
-  { id: "highProfit" as Page, label: "HIGH PROFIT", Icon: BarChart3 },
-  { id: "superHighProfit" as Page, label: "SUPER HIGH", Icon: Rocket },
-  { id: "elite" as Page, label: "ELITE", Icon: Crown },
-  { id: "search" as Page, label: "SEARCH", Icon: Search },
-  { id: "tracking" as Page, label: "TRACKING", Icon: BookOpen },
-  { id: "founder" as Page, label: "FOUNDER", Icon: User },
-  { id: "aiSkills" as Page, label: "AI SKILLS", Icon: Cpu },
-  { id: "instructions" as Page, label: "GUIDE", Icon: FileText },
+  { id: "home" as Page, label: "HOME", Icon: Home, gold: false },
+  {
+    id: "premiumSignals" as Page,
+    label: "PREMIUM SIGNALS",
+    Icon: Crown,
+    gold: true,
+  },
+  {
+    id: "eliteSignals" as Page,
+    label: "ELITE SIGNALS",
+    Icon: ShieldCheck,
+    gold: true,
+  },
+  { id: "search" as Page, label: "SEARCH", Icon: Search, gold: false },
+  { id: "tracking" as Page, label: "TRACKING", Icon: BookOpen, gold: false },
+  { id: "founder" as Page, label: "FOUNDER", Icon: User, gold: false },
+  { id: "aiSkills" as Page, label: "AI SKILLS", Icon: Cpu, gold: false },
+  { id: "instructions" as Page, label: "GUIDE", Icon: FileText, gold: false },
 ];
 
 const SIDEBAR_TABS = [
   { id: "profile" as Page, label: "Profile", Icon: User },
   { id: "home" as Page, label: "Home", Icon: Home },
   { id: "post" as Page, label: "Post", Icon: BookOpen },
-  { id: "news" as Page, label: "News", Icon: Activity },
+  { id: "news" as Page, label: "News", Icon: TrendingUp },
   { id: "tracking" as Page, label: "Tracking", Icon: TrendingUp },
   { id: "dashboard" as Page, label: "AI Dashboard", Icon: Settings },
   { id: "founder" as Page, label: "Founder", Icon: UserCircle },
   { id: "aiSkills" as Page, label: "AI Skills", Icon: Cpu },
   { id: "instructions" as Page, label: "Instructions", Icon: FileText },
-  {
-    id: "verifiedSignals" as Page,
-    label: "Verified Signals",
-    Icon: CheckCircle,
-  },
 ];
 
 function statusColor(status: string): string {
@@ -147,7 +149,10 @@ function AppInner() {
   const [loginOpen, setLoginOpen] = useState(false);
 
   const topTabs = isAdmin
-    ? [...TOP_TABS, { id: "admin" as Page, label: "ADMIN", Icon: Shield }]
+    ? [
+        ...TOP_TABS,
+        { id: "admin" as Page, label: "ADMIN", Icon: Shield, gold: false },
+      ]
     : TOP_TABS;
 
   const navigate = (p: Page) => {
@@ -167,6 +172,11 @@ function AppInner() {
     switch (page) {
       case "home":
         return <HomePage onNavigate={navigate} />;
+      case "premiumSignals":
+        return <PremiumSignalsPage />;
+      case "eliteSignals":
+        return <EliteSignalsPage />;
+      // Legacy routes kept for backward compat
       case "fast":
         return <FastTradePage />;
       case "tradeNow":
@@ -179,6 +189,8 @@ function AppInner() {
         return <SuperHighProfitPage />;
       case "elite":
         return <ElitePage />;
+      case "verifiedSignals":
+        return <VerifiedSignalsPage />;
       case "search":
         return <SearchPage />;
       case "tracking":
@@ -201,8 +213,6 @@ function AppInner() {
         return <AISkillsPage />;
       case "instructions":
         return <InstructionsPage />;
-      case "verifiedSignals":
-        return <VerifiedSignalsPage />;
       default:
         return <HomePage onNavigate={navigate} />;
     }
@@ -224,7 +234,7 @@ function AppInner() {
           >
             <Menu size={20} />
           </button>
-          {/* Brand — allows wrapping so full text is always visible */}
+          {/* Brand */}
           <div className="flex flex-col leading-tight flex-1">
             <span className="text-[#B8902A] font-bold text-sm sm:text-base tracking-wide uppercase whitespace-normal break-words">
               Luxia Crypto Trade
@@ -269,9 +279,8 @@ function AppInner() {
             style={{ scrollbarWidth: "none" }}
           >
             <div className="flex items-center gap-1 min-w-max">
-              {topTabs.map(({ id, label, Icon }) => {
+              {topTabs.map(({ id, label, Icon, gold }) => {
                 const active = page === id;
-                const isElite = id === "elite";
                 return (
                   <button
                     type="button"
@@ -280,10 +289,10 @@ function AppInner() {
                     onClick={() => navigate(id)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold tracking-widest uppercase transition-all whitespace-nowrap ${
                       active
-                        ? isElite
+                        ? gold
                           ? "bg-[#C9A84C] text-[#0A1628] shadow-sm"
                           : "bg-[#0A1628] text-white shadow-sm"
-                        : isElite
+                        : gold
                           ? "text-[#C9A84C] hover:bg-[#C9A84C]/10 border border-[#C9A84C]/40"
                           : "text-[#0A1628]/70 hover:bg-[#0A1628]/5 hover:text-[#0A1628]"
                     }`}
@@ -431,6 +440,20 @@ function AppInner() {
                     </button>
                   );
                 })}
+                {/* Elite Signals link in sidebar */}
+                <button
+                  type="button"
+                  data-ocid="sidebar.eliteSignals.link"
+                  onClick={() => navigate("eliteSignals")}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all border ${
+                    page === "eliteSignals"
+                      ? "bg-[#C9A84C] text-[#0A1628] border-[#C9A84C]"
+                      : "text-[#C9A84C] hover:bg-[#C9A84C]/10 border-[#C9A84C]/30"
+                  }`}
+                >
+                  <CheckCircle size={16} />
+                  Elite Signals
+                </button>
                 {isAdmin && (
                   <button
                     type="button"
@@ -450,7 +473,7 @@ function AppInner() {
 
               <div className="px-5 py-4 border-t border-[#0A1628]/8">
                 <p className="text-[10px] text-[#0A1628]/30 text-center">
-                  © {new Date().getFullYear()}. Built with love using{" "}
+                  &copy; {new Date().getFullYear()}. Built with love using{" "}
                   <a
                     href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
                     target="_blank"

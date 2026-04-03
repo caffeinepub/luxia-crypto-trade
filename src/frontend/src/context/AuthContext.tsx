@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   loadUsersFromBackend,
+  saveAILearningToBackend,
   saveUsersToBackend,
 } from "../services/backendStorage";
 
@@ -27,6 +28,7 @@ export interface StoredUser extends LuxiaUser {
 
 const USERS_KEY = "luxia_users";
 const SESSION_KEY = "luxia_user";
+const AI_LEARNING_KEY = "luxia_ai_learning";
 
 const DEFAULT_USERS: StoredUser[] = [
   {
@@ -95,6 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const [usersLoading, setUsersLoading] = useState(true);
+  const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // On mount: sync users from backend (backend is authoritative for cross-device sync)
   useEffect(() => {
@@ -136,6 +139,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => {
         setUsersLoading(false);
       });
+  }, []);
+
+  // Auto-sync: push users + AI learning to backend every 30 seconds
+  useEffect(() => {
+    syncIntervalRef.current = setInterval(() => {
+      // Silently sync users list
+      const currentUsers = getUsers();
+      if (currentUsers.length > 0) {
+        saveUsersToBackend(JSON.stringify(currentUsers)).catch(() => {
+          // silent — no UI change on failure
+        });
+      }
+
+      // Silently sync AI learning data
+      const aiLearningRaw = localStorage.getItem(AI_LEARNING_KEY);
+      if (aiLearningRaw) {
+        saveAILearningToBackend(aiLearningRaw).catch(() => {
+          // silent — no UI change on failure
+        });
+      }
+    }, 30000);
+
+    return () => {
+      if (syncIntervalRef.current !== null) {
+        clearInterval(syncIntervalRef.current);
+      }
+    };
   }, []);
 
   const login = async (
@@ -194,7 +224,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const users = getUsers();
     users.push(newUser);
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    // Sync to backend
+    // Sync to backend immediately
     saveUsersToBackend(JSON.stringify(users));
   };
 

@@ -1,49 +1,43 @@
 # Luxia Crypto Trade
 
 ## Current State
-The Tracking page has an "Update" button on each tracked trade card that opens `TradeUpdateModal.tsx`. This runs 20 live technical checks (RSI, MACD, EMA, volume, momentum, P&L, TP/SL distance, etc.) using CoinGecko OHLCV data and gives a HOLD / CAUTION / EXIT verdict. The service is in `src/frontend/src/services/tradeTest.ts` and uses `fetchLiveOHLC` which fetches 1-day OHLC candles.
+- Snackbar has separate tabs: HOME, FAST TRADE, TRADE NOW, ACTIVE SIGNALS, HIGH PROFIT, SUPER HIGH, ELITE, SEARCH, TRACKING, FOUNDER, AI SKILLS, GUIDE
+- Sidebar has "Verified Signals" as a sidebar-only link
+- Page type enum includes: fast, tradeNow, active, highProfit, superHighProfit, elite, verifiedSignals
+- AuthContext.addUser() saves to localStorage and calls saveUsersToBackend() immediately
+- AI learning data syncs to backend on every save
+- Auto-sync on app load: loads users from backend once on mount, but no periodic/real-time push
+- Admin panel can delete users, but deleteUser() only updates localStorage (missing backend sync)
 
 ## Requested Changes (Diff)
 
 ### Add
-- `src/frontend/src/services/chartPatternAnalysis.ts` — new service that:
-  - Fetches both 1h candles (last 48 candles) AND 4h candles (last 30 candles) from CoinGecko for multi-timeframe analysis
-  - Detects candlestick patterns on both timeframes: Doji, Hammer, Shooting Star, Bullish/Bearish Engulfing, Morning Star, Evening Star, Harami, Tweezer Top/Bottom, Pin Bar
-  - Detects chart patterns: Bull Flag, Bear Flag, Double Top, Double Bottom, Head & Shoulders, Inverse Head & Shoulders, Ascending/Descending/Symmetrical Triangle, Wedge, Cup & Handle, Support/Resistance retests
-  - Identifies key support and resistance levels from recent swing highs/lows
-  - Computes multi-timeframe confluence score (how many timeframes agree on direction)
-  - Generates a structured analysis object: `{ patterns1h, patterns4h, supportLevels, resistanceLevels, confluenceScore, bullishSignals, bearishSignals, overallBias, keyInsight }`
-  - Sends the full OHLCV candle data + pattern detections to Groq AI (Llama 3.3-70b) with a professional senior trader system prompt asking it to give a clear narrative verdict: will this tracked trade hit TP or should it exit? Groq returns a structured JSON with: `{ verdict: 'hold'|'caution'|'exit', confidence: number, keyPattern: string, narrative: string, tpOutlook: string, riskFactors: string[] }`
-  - Falls back to a rule-based analysis if Groq fails
-- New section in `TradeUpdateModal.tsx`: "Professional Chart Analysis" panel that shows:
-  - Detected candlestick patterns on 1h with visual badges (bullish=green, bearish=red)
-  - Detected chart patterns with descriptions
-  - Multi-timeframe confluence indicator (1h and 4h agreement)
-  - Groq AI professional narrative text (like a senior trader's commentary)
-  - AI verdict badge (HOLD / CAUTION / EXIT) from chart analysis
-  - Key pattern name highlighted
-  - Risk factors list
-  - TP outlook text
-- New loading stages added to the modal: "Fetching 1h + 4h chart data...", "Detecting chart patterns...", "Generating AI trader analysis..."
+- New page type `premiumSignals` for the combined section
+- New `PremiumSignalsPage` that combines Fast Trade, Trade Now, Active Signals, High Profit, Super High Profit, Elite — each shown as a named sub-tab inside the page with its own filter criteria and signal cards
+- New snackbar tab "ELITE SIGNALS" (replaces/moves Verified Signals from sidebar to snackbar)
+- Auto-sync interval: every 30 seconds, push the full user list + AI learning data to the canister in the background
+- On any user CRUD (add/delete/credit update), immediately sync to backend
+- deleteUser in AdminPage must also sync to backend
 
 ### Modify
-- `TradeUpdateModal.tsx`: integrate `chartPatternAnalysis` — call it in parallel with the existing 20-check analysis, show chart analysis section above or below the existing checks panel. The final combined verdict should consider both the 20-check result AND the chart pattern AI verdict. If chart AI says EXIT but checks say HOLD, overall = CAUTION. If both agree on EXIT = EXIT. If both agree on HOLD = HOLD.
-- Loading stages array: add 2 more stages for chart fetching and AI analysis
+- Snackbar TOP_TABS: remove FAST TRADE, TRADE NOW, ACTIVE SIGNALS, HIGH PROFIT, SUPER HIGH, ELITE; add PREMIUM SIGNALS (single tab) and ELITE SIGNALS (renamed Verified Signals in snackbar)
+- App Page type: add `premiumSignals` and `eliteSignals`, keep old types for backward compat but they will no longer be in the snackbar
+- renderPage() in App.tsx: add cases for premiumSignals (PremiumSignalsPage) and eliteSignals (VerifiedSignalsPage renamed to EliteSignalsPage)
+- AuthContext: add periodic auto-sync (setInterval every 30s) that pushes users + AI learning to backend silently
+- AdminPage deleteUser: call saveUsersToBackend() after deleting from localStorage
 
 ### Remove
-- Nothing removed
+- "Verified Signals" from the sidebar tabs list (it moves to snackbar as "ELITE SIGNALS")
+- Separate snackbar tabs for Fast Trade, Trade Now, Active Signals, High Profit, Super High Profit, Elite (all merged into Premium Signals)
 
 ## Implementation Plan
-1. Create `src/frontend/src/services/chartPatternAnalysis.ts`:
-   - `fetchMultiTimeframeData(coinId)` — fetches 1h and 4h OHLCV from CoinGecko `/coins/{id}/ohlc?vs_currency=usd&days=2` for 1h and `days=7` for 4h (CoinGecko granularity: 1-2 days = ~1h candles, 3-90 days = ~4h candles)
-   - `detectCandlestickPatterns(candles)` — returns array of pattern objects `{name, type:'bullish'|'bearish'|'neutral', strength:1-3, description}`
-   - `detectChartPatterns(candles)` — returns array of chart pattern objects
-   - `findSupportResistance(candles)` — returns key levels
-   - `analyzeWithGroqAI(coinSymbol, currentPrice, entryPrice, tp, sl, patterns1h, patterns4h, candles1h, candles4h)` — builds professional trader prompt, calls Groq, parses JSON response, returns structured result with fallback
-   - `runChartPatternAnalysis(trade, currentPrice)` — orchestrates all of the above
-2. Update `TradeUpdateModal.tsx`:
-   - Add chart analysis state
-   - Call `runChartPatternAnalysis` in parallel with existing checks
-   - Add new loading stages
-   - Render chart analysis section: pattern badges, confluence meter, AI narrative panel, combined verdict
-   - Combine verdicts: chart AI verdict + 20-check verdict → final verdict
+1. Create `PremiumSignalsPage.tsx` — tabbed page with 6 sub-sections (Fast Trade, Trade Now, Active Signals, High Profit, Super High Profit, Elite), each rendering SignalPage or ElitePage with correct type and applying their section filters. Use horizontal pill tab navigation.
+2. Create `EliteSignalsPage.tsx` — rename/copy VerifiedSignalsPage with updated title "Elite Signals" branding.
+3. Update `App.tsx`:
+   - Add `premiumSignals` and `eliteSignals` to Page type
+   - Replace 6 separate snackbar tabs with `premiumSignals` tab (gold crown icon)
+   - Add `eliteSignals` tab to snackbar (shield/check icon)
+   - Remove `verifiedSignals` from SIDEBAR_TABS
+   - Add renderPage cases for both new pages
+4. Update `AdminPage.tsx` deleteUser to call saveUsersToBackend() after localStorage update.
+5. Update `AuthContext.tsx`: add a useEffect with setInterval(30000) that calls saveUsersToBackend() with current users list silently in the background — full auto-sync loop.
