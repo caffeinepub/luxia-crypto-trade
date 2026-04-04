@@ -41,7 +41,25 @@ export default function EliteSignalsPage() {
       const sig = signals[i];
       try {
         const result = await runFullTest(sig);
-        if (result.verdict === "pass") {
+        // STRICT: only show signals that:
+        // 1. verdict === 'pass' (all 4 critical checks + 75% normal checks)
+        // 2. tpProbability >= 80
+        // 3. dumpProbability < 25
+        // 4. passedCritical (all 4 critical gates must pass)
+        // 5. expectedValue > 0 (positive expected value)
+        const isEliteQuality =
+          result.verdict === "pass" &&
+          result.tpProbability >= 80 &&
+          result.dumpProbability < 25 &&
+          result.passedCritical &&
+          result.expectedValue > 0 &&
+          // Signal itself must have strong fundamentals
+          sig.dumpRisk === "Low" &&
+          sig.rsiValue >= 45 &&
+          sig.rsiValue <= 65 &&
+          sig.macdHistogram > 0;
+
+        if (isEliteQuality) {
           passed.push({ signal: sig, result });
           setVerified([...passed]);
         }
@@ -51,6 +69,9 @@ export default function EliteSignalsPage() {
       setProgress({ done: i + 1, total: signals.length });
     }
 
+    // Sort by tpProbability descending — highest certainty first
+    passed.sort((a, b) => b.result.tpProbability - a.result.tpProbability);
+    setVerified([...passed]);
     setTesting(false);
     setLastTested(new Date());
   }
@@ -93,7 +114,8 @@ export default function EliteSignalsPage() {
               ⭐ Elite Signals
             </h1>
             <p className="text-white/50 text-xs">
-              Auto-tested — only trades that passed all 16 checks
+              Live-tested — only signals that passed ALL 16 checks with 80%+ TP
+              probability
             </p>
           </div>
         </div>
@@ -230,21 +252,24 @@ export default function EliteSignalsPage() {
         <div className="text-center py-16">
           <div className="text-4xl mb-3 animate-pulse">🧪</div>
           <div className="text-[#0A1628] font-semibold mb-1">
-            Running Tests...
+            Running Live Tests...
           </div>
           <div className="text-[#0A1628]/40 text-sm">
-            Testing {progress.total} signals. Results will appear as they pass.
+            Testing {progress.total} signals with live CoinGecko data. Only
+            signals with 80%+ TP probability will pass.
           </div>
         </div>
       ) : !testing && verified.length === 0 ? (
         <div className="text-center py-16">
           <div className="text-4xl mb-3">🔍</div>
           <div className="text-[#0A1628] font-semibold mb-1">
-            No Signals Passed Testing
+            No Signals Passed All Tests
           </div>
           <div className="text-[#0A1628]/40 text-sm max-w-xs mx-auto">
-            All {progress.total} signals failed the 16-check institutional test.
-            Rescan markets or try again later for better setups.
+            All {progress.total} signals failed the 16-check live test or scored
+            below 80% TP probability. This page only shows signals with the
+            highest certainty of hitting TP. Rescan markets or try again when
+            market conditions improve.
           </div>
           <button
             type="button"
@@ -269,11 +294,12 @@ export default function EliteSignalsPage() {
             <div className="flex-1">
               <div className="text-green-700 font-bold text-sm">
                 {verified.length} signal{verified.length !== 1 ? "s" : ""}{" "}
-                passed all 16 checks
+                passed all 16 live checks — sorted by highest TP probability
               </div>
               <div className="text-green-600/70 text-xs">
-                Each passed: RSI, Dump Risk, MACD, Sell Pressure + 12 more
-                checks. These are the only trades safe to enter.
+                Each passed: All 4 critical gates (RSI, Dump Risk, MACD, Sell
+                Pressure) + 80%+ TP probability + positive expected value. These
+                are the only trades safe to enter.
               </div>
             </div>
             {testing && (
@@ -308,7 +334,8 @@ export default function EliteSignalsPage() {
                       </span>
                       <span className="text-white font-bold text-[10px]">
                         {result.score}/{result.maxScore} •{" "}
-                        {result.tpProbability.toFixed(0)}% TP
+                        {result.tpProbability.toFixed(0)}% TP • EV: $
+                        {result.expectedValue.toFixed(2)}
                       </span>
                     </div>
                     <div style={{ paddingTop: "28px" }}>

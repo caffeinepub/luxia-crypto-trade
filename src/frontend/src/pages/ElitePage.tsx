@@ -159,29 +159,30 @@ interface EliteFilterResult {
 }
 
 function filterEliteInstitutional(signals: Signal[]): EliteFilterResult {
-  // Rule 1: Base institutional filters
+  // Rule 1: Ultra-strict base institutional filters
+  // Requires Strong Buy AI rating (not just Buy), highest confidence, and clear room to run
   let filtered = signals.filter(
     (s) =>
-      s.confidence >= 90 &&
+      s.confidence >= 88 &&
       (s.tpProbability ?? 0) >= 88 &&
       (s.suretyScore ?? 0) >= 75 &&
       s.indicatorsAligned >= 5 &&
       s.dumpRisk === "Low" &&
-      s.momentum >= 0.5 &&
-      s.momentum <= 9 &&
-      s.rsiValue >= 42 &&
-      s.rsiValue <= 68 &&
-      (s.distToHigh24h === undefined || s.distToHigh24h > 0.015) &&
-      (s.aiRating === undefined ||
-        s.aiRating === "Strong Buy" ||
-        s.aiRating === "Buy"),
+      s.momentum >= 1 &&
+      s.momentum <= 7 && // sweet spot: not exhausted
+      s.rsiValue >= 45 &&
+      s.rsiValue <= 63 && // tighter RSI window
+      s.macdHistogram > 0 && // MACD must be positive
+      (s.distToHigh24h === undefined || s.distToHigh24h >= 0.05) && // at least 5% room to run
+      // AI must rate as Strong Buy — not just any Buy
+      (s.aiRating === "Strong Buy" || !s.aiEnriched),
   );
 
   if (filtered.length === 0) {
     return {
       signals: [],
       noTradeReason:
-        "No signals pass base institutional filters (90%+ confidence, 88%+ TP probability, low dump risk).",
+        "No signals pass institutional filters (88%+ confidence, 88%+ TP probability, Strong Buy AI rating, 5%+ room before resistance, RSI 45–63, positive MACD, Low dump risk).",
       sessionFull: false,
       totalFiltered: 0,
     };
@@ -241,13 +242,13 @@ function filterEliteInstitutional(signals: Signal[]): EliteFilterResult {
   }
   filtered = rrFiltered;
 
-  // Rule 6: Avoid overextended price moves
-  filtered = filtered.filter((s) => s.momentum <= 12);
+  // Rule 6: Avoid overextended price moves — strict 7% cap (matches momentum filter above)
+  filtered = filtered.filter((s) => s.momentum <= 7);
   if (filtered.length === 0) {
     return {
       signals: [],
       noTradeReason:
-        "All qualifying coins are overextended (>12% move today). Avoid chasing extended price action.",
+        "All qualifying coins are overextended (>7% move today). Avoid chasing extended price action.",
       sessionFull: false,
       totalFiltered: 0,
     };

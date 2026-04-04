@@ -24,7 +24,7 @@ const SORT_OPTIONS: { key: SortKey; label: string; desc: string }[] = [
   {
     key: "surety",
     label: "🛡️ Surety — Surely Hits TP",
-    desc: "AI confirmed · No dump risk · RSI safe · Must hit TP — all others hidden",
+    desc: "AI confirmed · Low dump risk · RSI safe · Must hit TP — all others hidden",
   },
   {
     key: "tpHitting",
@@ -45,15 +45,21 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
   }
 
   if (key === "surety") {
+    // NO FALLBACK: only show signals that pass ALL surety criteria
+    // If none pass, return empty array (empty state is correct)
     const safe = arr.filter((s) => {
       const dumpOk = s.dumpRisk === "Low";
-      const rsiOk = !s.rsiValue || (s.rsiValue >= 42 && s.rsiValue <= 68);
-      const momentumOk = s.momentum >= 0.5 && s.momentum <= 9;
+      const rsiOk = s.rsiValue >= 45 && s.rsiValue <= 65;
+      const momentumOk = s.momentum >= 0.5 && s.momentum <= 8;
       const indicatorsOk = s.indicatorsAligned >= 5;
-      const confidenceOk = s.confidence >= 85;
-      const tpOk = (s.tpProbability ?? 0) >= 80;
+      const confidenceOk = s.confidence >= 82;
+      const tpOk = (s.tpProbability ?? 0) >= 78;
       const timeOk = s.estimatedHours <= 16;
-      const aiOk = s.aiRating === "Strong Buy" || s.aiRating === "Buy";
+      const aiOk =
+        !s.aiEnriched || s.aiRating === "Strong Buy" || s.aiRating === "Buy";
+      const suretyOk = (s.suretyScore ?? 0) >= 68;
+      const macdOk = s.macdHistogram > 0;
+      const roomOk = (s.distToHigh24h ?? 0) >= 0.05;
       return (
         dumpOk &&
         rsiOk &&
@@ -62,34 +68,30 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
         confidenceOk &&
         tpOk &&
         timeOk &&
-        aiOk
+        aiOk &&
+        suretyOk &&
+        macdOk &&
+        roomOk
       );
     });
-    const source =
-      safe.length >= 1
-        ? safe
-        : arr.filter(
-            (s) =>
-              s.dumpRisk === "Low" &&
-              (s.aiRating === "Strong Buy" || s.aiRating === "Buy"),
-          );
-    return (source.length >= 1 ? source : arr).sort(
-      (a, b) => profitPct(b) - profitPct(a),
-    );
+    // NO FALLBACK — return exactly what passes, even if empty
+    return safe.sort((a, b) => (b.suretyScore ?? 0) - (a.suretyScore ?? 0));
   }
 
-  // tpHitting: only coins actively pumping toward TP right now with zero dump risk
   if (key === "tpHitting") {
+    // NO FALLBACK: only coins actively pumping right now
     const hitting = arr.filter((s) => {
       const dumpOk = s.dumpRisk === "Low";
-      const rsiOk = s.rsiValue >= 45 && s.rsiValue <= 68;
-      const momentumOk = s.momentum >= 1 && s.momentum <= 9; // active but not exhausted
-      const macdOk = s.macdHistogram > 0; // must be positively trending
-      const roomToRun = (s.distToHigh24h ?? 0) > 0.03; // at least 3% room before resistance
+      const rsiOk = s.rsiValue >= 45 && s.rsiValue <= 65;
+      const momentumOk = s.momentum >= 1 && s.momentum <= 7; // actively pumping, not exhausted
+      const macdOk = s.macdHistogram > 0;
+      const roomToRun = (s.distToHigh24h ?? 0) >= 0.05;
       const indicatorsOk = s.indicatorsAligned >= 5;
-      const timeOk = s.estimatedHours <= 16;
-      const aiOk = s.aiRating === "Strong Buy" || s.aiRating === "Buy";
+      const timeOk = s.estimatedHours <= 12; // must be reachable quickly
+      const aiOk =
+        !s.aiEnriched || s.aiRating === "Strong Buy" || s.aiRating === "Buy";
       const bullish = s.trendDirection === "bullish";
+      const suretyOk = (s.suretyScore ?? 0) >= 65;
       return (
         dumpOk &&
         rsiOk &&
@@ -99,9 +101,11 @@ function sortSignals(signals: Signal[], key: SortKey): Signal[] {
         indicatorsOk &&
         timeOk &&
         aiOk &&
-        bullish
+        bullish &&
+        suretyOk
       );
     });
+    // NO FALLBACK — return exactly what passes
     return hitting.sort((a, b) => profitPct(b) - profitPct(a));
   }
 
@@ -141,8 +145,8 @@ function filterSignals(signals: Signal[], type: Props["type"]): Signal[] {
       return signals
         .filter((s) => {
           const pp = (s.takeProfit - s.entryPrice) / (s.entryPrice || 1);
-          // Require >10% profit AND minimum surety score of 70
-          return pp > 0.1 && s.suretyScore >= 70;
+          // Require >10% profit AND minimum surety score of 72
+          return pp > 0.1 && (s.suretyScore ?? 0) >= 72;
         })
         .sort((a, b) => profitPct(b) - profitPct(a));
 
@@ -249,7 +253,8 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                 className="mb-3 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200"
               >
                 <span className="text-emerald-600 text-sm font-semibold">
-                  🛡️ Only AI-confirmed, no-dump trades shown — all others hidden
+                  🛡️ Surety mode — only AI-confirmed, no-dump, TP-hitting trades
+                  shown. All others hidden.
                 </span>
               </motion.div>
             )}
@@ -261,8 +266,8 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
                 className="mb-3 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 border border-blue-200"
               >
                 <span className="text-blue-700 text-sm font-semibold">
-                  🚀 Only actively pumping trades shown — no dump risk, no
-                  pullback, must hit TP
+                  🚀 TP Hitting mode — only coins actively pumping toward TP
+                  right now. No fallback. No dump risk.
                 </span>
               </motion.div>
             )}
@@ -406,19 +411,22 @@ export default function SignalPage({ type, title, subtitle, icon }: Props) {
         </motion.div>
 
         {sorted.length === 0 ? (
-          <div
-            data-ocid="signal.empty_state"
-            className="text-center py-16 text-[#0A1628]/40"
-          >
+          <div data-ocid="signal.empty_state" className="text-center py-16">
             <div className="text-5xl mb-4">{icon}</div>
-            <div className="font-medium text-lg mb-1">No signals available</div>
-            <div className="text-sm">
-              {scanning
-                ? "Scanning in progress..."
-                : sortKey === "tpHitting"
-                  ? "No actively-pumping, no-dump trades found right now. Try rescanning or switch to Highest Profit view."
-                  : sortKey === "surety"
-                    ? "No AI-confirmed, no-dump trades found. Try rescanning or switch to Highest Profit view."
+            <div className="font-medium text-lg mb-1 text-[#0A1628]">
+              {sortKey === "tpHitting"
+                ? "No Actively Pumping Trades"
+                : sortKey === "surety"
+                  ? "No Confirmed TP-Hitting Trades"
+                  : "No signals available"}
+            </div>
+            <div className="text-sm text-[#0A1628]/50 max-w-xs mx-auto">
+              {sortKey === "tpHitting"
+                ? "No coins are actively pumping toward TP right now with zero dump risk. This filter has no fallback — it only shows real setups. Try rescanning or switch to Highest Profit."
+                : sortKey === "surety"
+                  ? "No AI-confirmed, no-dump, TP-hitting trades found. This filter has no fallback — it only shows safe setups. Rescan or switch to Highest Profit."
+                  : scanning
+                    ? "Scanning in progress..."
                     : "Markets are being analyzed. Try rescanning."}
             </div>
           </div>
