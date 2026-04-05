@@ -24,6 +24,10 @@ interface Post {
   isPromo: boolean;
   date: string;
   image?: string;
+  // AI-generated post fields
+  isAI?: boolean;
+  aiBadge?: "AI RESEARCH" | "100X CANDIDATE" | "GOING TO BOOM" | "GEM ALERT";
+  timestamp?: number;
 }
 
 const SAMPLE_POSTS: Post[] = [
@@ -56,9 +60,36 @@ const SAMPLE_POSTS: Post[] = [
   },
 ];
 
+const AI_BADGE_CONFIG: Record<
+  string,
+  { bg: string; text: string; icon: string }
+> = {
+  "100X CANDIDATE": {
+    bg: "bg-yellow-500",
+    text: "text-[#0A1628]",
+    icon: "\u26a1",
+  },
+  "GOING TO BOOM": {
+    bg: "bg-red-500",
+    text: "text-white",
+    icon: "\ud83d\ude80",
+  },
+  "AI RESEARCH": {
+    bg: "bg-purple-600",
+    text: "text-white",
+    icon: "\ud83e\udd16",
+  },
+  "GEM ALERT": {
+    bg: "bg-emerald-500",
+    text: "text-white",
+    icon: "\ud83d\udc8e",
+  },
+};
+
 export default function PostPage() {
   const { isAdmin } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
+  const [aiPosts, setAiPosts] = useState<Post[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState({
     heading: "",
@@ -69,6 +100,7 @@ export default function PostPage() {
   });
   const imageInputRef = useRef<HTMLInputElement>(null);
 
+  // Load admin posts
   useEffect(() => {
     try {
       const stored = JSON.parse(localStorage.getItem("luxia_posts") || "[]");
@@ -76,6 +108,40 @@ export default function PostPage() {
     } catch {
       setPosts(SAMPLE_POSTS);
     }
+  }, []);
+
+  // Load AI-generated posts and poll every 15s
+  useEffect(() => {
+    const load = () => {
+      try {
+        const raw: {
+          id: string;
+          heading: string;
+          tagline: string;
+          description: string;
+          badge: string;
+          date: string;
+          timestamp: number;
+        }[] = JSON.parse(localStorage.getItem("luxia_ai_posts") || "[]");
+        const mapped: Post[] = raw.slice(0, 20).map((p) => ({
+          id: p.id,
+          heading: p.heading,
+          tagline: p.tagline,
+          description: p.description,
+          isPromo: false,
+          date: p.date,
+          isAI: true,
+          aiBadge: p.badge as Post["aiBadge"],
+          timestamp: p.timestamp,
+        }));
+        setAiPosts(mapped);
+      } catch {
+        // ignore
+      }
+    };
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
   }, []);
 
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -116,6 +182,9 @@ export default function PostPage() {
     });
   }
 
+  // Merge: AI posts first, then admin posts
+  const allPosts: Post[] = [...aiPosts, ...posts];
+
   return (
     <div className="min-h-screen bg-white py-10 px-6">
       <div className="max-w-4xl mx-auto">
@@ -132,6 +201,16 @@ export default function PostPage() {
               <h1 className="font-display text-3xl font-bold text-[#0A1628] uppercase tracking-tight">
                 Posts
               </h1>
+              {aiPosts.length > 0 && (
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white bg-purple-600 animate-pulse">
+                    {aiPosts.length} AI RESEARCH POSTS
+                  </span>
+                  <span className="text-[#0A1628]/40 text-[10px]">
+                    Auto-posted by research bots
+                  </span>
+                </div>
+              )}
             </div>
             {isAdmin && (
               <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -210,7 +289,7 @@ export default function PostPage() {
                         className="w-full text-xs border-[#C9A84C]/50 text-[#B8902A] hover:bg-[#C9A84C]/10"
                         onClick={() => imageInputRef.current?.click()}
                       >
-                        📎 Upload Image
+                        Upload Image
                       </Button>
                       {form.image && (
                         <div className="mt-2">
@@ -259,67 +338,115 @@ export default function PostPage() {
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {posts.map((post, i) => (
-            <motion.div
-              key={post.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.07 }}
-              data-ocid={`post.item.${i + 1}`}
-              className="luxury-card rounded-2xl overflow-hidden hover:shadow-xl transition-all duration-300 group"
-            >
-              {/* Post header — image or gradient */}
-              {post.image ? (
-                <div className="h-28 overflow-hidden relative">
-                  <img
-                    src={post.image}
-                    alt={post.heading}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-                  {post.isPromo && (
-                    <Badge className="absolute top-3 right-3 bg-[#C9A84C] text-[#0A1628] text-[10px] font-bold">
-                      PROMO
-                    </Badge>
-                  )}
-                </div>
-              ) : (
-                <div className="h-28 bg-gradient-to-br from-[#0A1628] to-[#1a3558] flex items-center justify-center text-4xl relative overflow-hidden">
+          {allPosts.map((post, i) => {
+            const aiBadgeCfg = post.aiBadge
+              ? AI_BADGE_CONFIG[post.aiBadge]
+              : null;
+
+            return (
+              <motion.div
+                key={post.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.07 }}
+                data-ocid={`post.item.${i + 1}`}
+                className={`luxury-card rounded-2xl overflow-hidden hover:shadow-xl transition-all duration-300 group ${
+                  post.isAI ? "ring-1 ring-purple-300/50" : ""
+                }`}
+              >
+                {/* Post header */}
+                {post.image ? (
+                  <div className="h-28 overflow-hidden relative">
+                    <img
+                      src={post.image}
+                      alt={post.heading}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                    {post.isPromo && (
+                      <Badge className="absolute top-3 right-3 bg-[#C9A84C] text-[#0A1628] text-[10px] font-bold">
+                        PROMO
+                      </Badge>
+                    )}
+                  </div>
+                ) : (
                   <div
-                    className="absolute inset-0 opacity-10"
-                    style={{
-                      backgroundImage:
-                        "radial-gradient(circle at 30% 50%, #C9A84C 0%, transparent 60%)",
-                    }}
-                  />
-                  <span className="relative z-10">
-                    {post.isPromo ? "📣" : "📝"}
-                  </span>
-                  {post.isPromo && (
-                    <Badge className="absolute top-3 right-3 bg-[#C9A84C] text-[#0A1628] text-[10px] font-bold">
-                      PROMO
-                    </Badge>
-                  )}
-                </div>
-              )}
-              <div className="p-5">
-                <div className="text-[#0A1628]/40 text-[10px] mb-1">
-                  {post.date}
-                </div>
-                <h3 className="text-[#0A1628] font-bold text-base mb-1 group-hover:text-[#B8902A] transition-colors leading-snug">
-                  {post.heading}
-                </h3>
-                {post.tagline && (
-                  <p className="text-[#B8902A] text-xs font-semibold mb-2">
-                    {post.tagline}
-                  </p>
+                    className={`h-28 flex items-center justify-center text-4xl relative overflow-hidden ${
+                      post.isAI
+                        ? post.aiBadge === "100X CANDIDATE"
+                          ? "bg-gradient-to-br from-yellow-900 to-yellow-600"
+                          : post.aiBadge === "GOING TO BOOM"
+                            ? "bg-gradient-to-br from-red-900 to-red-600"
+                            : post.aiBadge === "GEM ALERT"
+                              ? "bg-gradient-to-br from-emerald-900 to-emerald-600"
+                              : "bg-gradient-to-br from-purple-900 to-purple-600"
+                        : "bg-gradient-to-br from-[#0A1628] to-[#1a3558]"
+                    }`}
+                  >
+                    <div
+                      className="absolute inset-0 opacity-10"
+                      style={{
+                        backgroundImage:
+                          "radial-gradient(circle at 30% 50%, #C9A84C 0%, transparent 60%)",
+                      }}
+                    />
+                    <span className="relative z-10">
+                      {post.isAI
+                        ? post.aiBadge === "100X CANDIDATE"
+                          ? "\u26a1"
+                          : post.aiBadge === "GOING TO BOOM"
+                            ? "\ud83d\ude80"
+                            : post.aiBadge === "GEM ALERT"
+                              ? "\ud83d\udc8e"
+                              : "\ud83e\udd16"
+                        : post.isPromo
+                          ? "\ud83d\udce3"
+                          : "\ud83d\udcdd"}
+                    </span>
+                    <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                      {post.isAI && aiBadgeCfg && (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            aiBadgeCfg.bg
+                          } ${aiBadgeCfg.text}`}
+                        >
+                          {aiBadgeCfg.icon} {post.aiBadge}
+                        </span>
+                      )}
+                      {post.isPromo && !post.isAI && (
+                        <Badge className="bg-[#C9A84C] text-[#0A1628] text-[10px] font-bold">
+                          PROMO
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
                 )}
-                <p className="text-[#0A1628]/60 text-xs leading-relaxed">
-                  {post.description}
-                </p>
-              </div>
-            </motion.div>
-          ))}
+                <div className="p-5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[#0A1628]/40 text-[10px]">
+                      {post.date}
+                    </span>
+                    {post.isAI && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-bold">
+                        AI BOT
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-[#0A1628] font-bold text-base mb-1 group-hover:text-[#B8902A] transition-colors leading-snug">
+                    {post.heading}
+                  </h3>
+                  {post.tagline && (
+                    <p className="text-[#B8902A] text-xs font-semibold mb-2">
+                      {post.tagline}
+                    </p>
+                  )}
+                  <p className="text-[#0A1628]/60 text-xs leading-relaxed">
+                    {post.description}
+                  </p>
+                </div>
+              </motion.div>
+            );
+          })}
         </div>
       </div>
     </div>

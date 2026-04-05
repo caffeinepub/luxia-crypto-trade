@@ -24,7 +24,6 @@ export default function VerifiedSignalsPage() {
     if (signals.length > 0 && !testing && verified.length === 0 && !scanning) {
       runTests();
     }
-    // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
   }, [signals.length, scanning]);
 
   async function runTests() {
