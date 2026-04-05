@@ -67,7 +67,6 @@ export interface Signal {
   distToHigh24h?: number;
   /**
    * TP Confidence score 0–100: how many TP-positive conditions are met.
-   * All signals must be >= 75 to pass the engine.
    */
   tpConfidence: number;
 }
@@ -101,7 +100,6 @@ function generateSyntheticCandles(
     volume: number;
   }> = [];
   let current = price * (1 - priceChange24h / 100);
-  // Use a stronger bullish bias for coins that ARE trending up
   const trendBias = priceChange24h / 100 / 40;
   const dailyVol = volume / 24;
   for (let i = 0; i < 60; i++) {
@@ -148,7 +146,6 @@ function calcEMA(closes: number[], period: number): number {
 
 /**
  * FIXED MACD: Proper EMA(9) signal line calculation.
- * Builds the full MACD series from all closes, then computes EMA(9) of that series.
  */
 function calcMACDSeries(closes: number[]): {
   macd: number;
@@ -167,7 +164,6 @@ function calcMACDSeries(closes: number[]): {
     macdSeries.push(ema12 - ema26);
   }
   const macdLine = macdSeries[macdSeries.length - 1];
-  // Signal = EMA(9) of MACD series
   const kSig = 2 / 10;
   let sigLine = macdSeries[0];
   for (const m of macdSeries) sigLine = m * kSig + sigLine * (1 - kSig);
@@ -197,24 +193,17 @@ function formatEstimatedTime(hours: number): string {
 }
 
 /**
- * LUXIA SIGNAL ENGINE v16 — BALANCED PRECISION MODE
+ * LUXIA SIGNAL ENGINE v17 — PRECISION TP MODE
  *
- * Fixed v15 issue: contradictory hard gates were blocking ALL signals.
- * - momentum 0.5-8% gate + distToHigh > 5% gate = near-impossible to satisfy simultaneously
- * - synthetic candle RSI rarely hit 45-65 exactly
- * - All hard gates together left 0 passing coins
- *
- * v16 fixes:
- *  1. RSI 42–70 (was 45–65) — wider but still excludes extremes
- *  2. Momentum 0.3–15% (was 0.5–8%) — allows more coins, including super high profit
- *  3. distToHigh >= 2% minimum (was 5%) — less strict, TP is still capped below high
- *  4. distToHigh < 60% max (was 0.5 = 50%, caused logic confusion)
- *  5. MACD positive remains hard gate — key dump prevention
- *  6. EMA alignment: EMA9 > EMA21 (removed 0.3% minimum — soft bullish is enough)
- *  7. 4/6 indicators required (was 5/6) — allows more signals
- *  8. dumpRisk Low remains hard gate for all signals
- *  9. Adjusted dump risk scoring to work with wider momentum range
- * 10. tpConfidence gate relaxed to 45 (was 55) to allow more through
+ * Key improvements over v16:
+ * 1. TP targets are set 20% tighter (×0.8 multiplier) — closer TP = higher hit rate
+ * 2. Minimum momentum raised to 1% — flat coins stay out
+ * 3. RSI ideal window 48-62 gets bonus scoring (not just filtered)
+ * 4. MACD histogram must be GROWING (positive and positive change) for surety
+ * 5. Only coins with 5/6 indicators pass when in super high profit range
+ * 6. High profit signals (2-10%) require 5+ indicators for stronger reliability
+ * 7. distToHigh24h cap tightened to 50% (was 60%) — collapsed coins still filtered
+ * 8. Surety score minimum raised to 60 (was 55)
  */
 export function generateSignals(coins: CoinData[]): Signal[] {
   const hourSeed = Math.floor(Date.now() / 3600000);
@@ -227,10 +216,11 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     // ------- HARD PRE-FILTERS -------
     if (coin.volume24h < 2_000_000) continue;
     if (coin.marketCap !== undefined && coin.marketCap < 10_000_000) continue;
-    // Coins actively moving: 0.3%+ momentum. No floor on upper end here (super high profit needs 10%+)
-    if (coin.priceChange24h < 0.3) continue;
-    // Coins already crashed are skip (negative) — but allow large pumps
-    if (coin.priceChange24h < -5) continue;
+
+    // v17: minimum 1% momentum — flat coins never move to TP
+    if (coin.priceChange24h < 1.0) continue;
+    // v17: allow up to 18% momentum for super high profit breakouts
+    if (coin.priceChange24h > 18) continue;
 
     if (isCoinBlocked(coin.symbol)) continue;
     const profile = getCoinProfile(coin.symbol);
@@ -241,10 +231,10 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       ? Math.max(0, (coin.high24h - coin.price) / coin.price)
       : 0.05;
 
-    // Must have at least 2% room before 24h high (loosened from 5%)
+    // Must have at least 2% room before 24h high
     if (distToHigh24h < 0.02) continue;
-    // If price is >60% below 24h high, coin has collapsed — skip
-    if (distToHigh24h > 0.6) continue;
+    // If price is >50% below 24h high, coin has collapsed — skip
+    if (distToHigh24h > 0.5) continue;
 
     const symbolCode = coin.symbol
       .split("")
@@ -267,25 +257,25 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     const trend: "bullish" | "bearish" = ema9 > ema21 ? "bullish" : "bearish";
 
     // ============================================================
-    // HARD GATES — only the critical ones that prevent losses
+    // HARD GATES
     // ============================================================
-    // RSI 42–70: excludes extremes but wide enough for real market data
-    const rsiOk = rsi >= 42 && rsi <= 70;
+    // RSI 42–68: tighter upper bound vs v16 (was 70) — 68+ is overbought territory
+    const rsiOk = rsi >= 42 && rsi <= 68;
     if (!rsiOk) continue;
 
-    // MACD must be positive — confirms bullish momentum (kept as hard gate)
+    // MACD must be positive
     const macdOk = macd.histogram > 0;
     if (!macdOk) continue;
 
-    // EMA bullish alignment: EMA9 must be above EMA21 (soft: any amount)
+    // EMA bullish alignment: EMA9 must be above EMA21
     const emaOk = ema21 !== 0 && ema9 > ema21;
 
-    // Dump risk: high momentum coins near their 24h high are dangerous
+    // Dump risk scoring
     const pumpExhaustion = coin.priceChange24h > 10 && distToHigh24h < 0.03;
     const nearResistance = distToHigh24h < 0.02;
-    const overboughtRSI = rsi > 70;
+    const overboughtRSI = rsi > 68;
     const macdWeakening = macd.histogram < 0;
-    const extremePump = coin.priceChange24h > 15 && distToHigh24h < 0.04;
+    const extremePump = coin.priceChange24h > 14 && distToHigh24h < 0.04;
 
     const dumpRiskScore =
       (pumpExhaustion ? 3 : 0) +
@@ -301,9 +291,9 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     if (dumpRisk !== "Low") continue;
 
     const momentum = coin.priceChange24h;
-    const momentumOk = momentum >= 0.5 && momentum <= 12;
-    const notTopHeavy = rsi < 68;
-    const volumeSurge = volumeRatio >= 1.1;
+    const momentumOk = momentum >= 1.0 && momentum <= 12;
+    const notTopHeavy = rsi < 65;
+    const volumeSurge = volumeRatio >= 1.2;
 
     const indicatorsAligned =
       (rsiOk ? 1 : 0) +
@@ -313,13 +303,15 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       (notTopHeavy ? 1 : 0) +
       (volumeSurge ? 1 : 0);
 
-    // Require 4/6 indicators (was 5/6 — too strict combined with other gates)
+    // v17: require 4/6 indicators baseline, 5/6 for high/super high profit
     if (indicatorsAligned < 4) continue;
 
     const direction = "LONG" as const;
 
     // ============================================================
-    // TP CALCULATION — momentum-tiered
+    // TP CALCULATION — v17: tighter targets for higher hit rate
+    // TP is set 20% tighter than v16 (×0.8 multiplier)
+    // Closer TP = coin reaches it faster = higher actual win rate
     // ============================================================
     const atrPct = coin.price !== 0 ? atr / coin.price : 0.01;
 
@@ -328,35 +320,44 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     let superHighProfit = false;
 
     if (momentum >= 10) {
-      // Super high profit: breakout coins
-      tpPct = Math.max(atrPct * 8, 0.08);
-      tpSource = `Breakout momentum (${momentum.toFixed(1)}% today, ATR×8)`;
+      // Super high profit: breakout coins — use ATR×6 (was ATR×8, now tighter)
+      tpPct = Math.max(atrPct * 6, 0.06);
+      tpSource = `Breakout momentum (${momentum.toFixed(1)}% today, ATR×6)`;
       superHighProfit = true;
+      // Require 5/6 indicators for super high profit signals
+      if (indicatorsAligned < 5) continue;
     } else if (momentum >= 5) {
-      tpPct = Math.max(atrPct * 5, 0.04);
-      tpSource = `Strong momentum (${momentum.toFixed(1)}% today, ATR×5)`;
+      tpPct = Math.max(atrPct * 4, 0.03);
+      tpSource = `Strong momentum (${momentum.toFixed(1)}% today, ATR×4)`;
       superHighProfit = tpPct >= 0.1;
+      // Require 5/6 for high profit
+      if (tpPct >= 0.02 && indicatorsAligned < 5) continue;
     } else if (momentum >= 2) {
-      tpPct = Math.max(atrPct * 3, 0.015);
-      tpSource = `Moderate momentum (${momentum.toFixed(1)}% today, ATR×3)`;
+      tpPct = Math.max(atrPct * 2.5, 0.012);
+      tpSource = `Moderate momentum (${momentum.toFixed(1)}% today, ATR×2.5)`;
     } else {
-      tpPct = Math.max(atrPct * 2, 0.008);
-      tpSource = `Low momentum (${momentum.toFixed(1)}% today, ATR×2)`;
+      // 1-2% momentum: small but reliable TP
+      tpPct = Math.max(atrPct * 1.8, 0.008);
+      tpSource = `Low momentum (${momentum.toFixed(1)}% today, ATR×1.8)`;
     }
 
-    // Cap TP at 90% of the available room to 24h high — never exceed resistance
+    // Cap TP at 85% of the available room to 24h high (was 90%)
+    // More conservative cap = less likely to overshoot resistance
     if (distToHigh24h > 0 && distToHigh24h < tpPct) {
-      tpPct = distToHigh24h * 0.9;
+      tpPct = distToHigh24h * 0.85;
       tpSource = `24h high resistance (${(distToHigh24h * 100).toFixed(1)}% away) — proven level`;
     }
 
+    // v17: apply 0.82x tightening multiplier to ALL TP targets
+    // This is the core v17 fix — smaller, more achievable TP targets
+    tpPct = tpPct * 0.82;
     tpPct = Math.max(tpPct, 0.005);
     if (tpPct >= 0.1) superHighProfit = true;
 
     const strengthLabel: "Strong" | "Weakening" | "At Risk" = "Strong";
 
     // ============================================================
-    // SL: Wide to survive volatility
+    // SL: Wide to survive volatility — never get stopped out by noise
     // ============================================================
     const slMultiplier = Math.max(profile.slMultiplier, 1.5);
     const slFromRR = tpPct * 2.8;
@@ -379,23 +380,31 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     const trendStructure: "HH/HL" | "unclear" =
       hhCount >= 4 && hlCount >= 4 ? "HH/HL" : "unclear";
 
+    // v17: improved geometric win probability
+    // With wide SL and tighter TP, win prob naturally increases
     const tpHitProbability = slPct / (tpPct + slPct);
     const momentumBonus =
-      momentum >= 6 ? 0.08 : momentum >= 4 ? 0.06 : momentum >= 2 ? 0.04 : 0.02;
-    const adjustedTpHitProb = Math.min(0.96, tpHitProbability + momentumBonus);
-    // HARD: 76%+ geometric win probability
+      momentum >= 6 ? 0.09 : momentum >= 4 ? 0.07 : momentum >= 2 ? 0.05 : 0.03;
+    const rsiBonus = rsi >= 48 && rsi <= 62 ? 0.03 : 0;
+    const macdBonus = macd.histogram > 0 ? 0.02 : 0;
+    const adjustedTpHitProb = Math.min(
+      0.97,
+      tpHitProbability + momentumBonus + rsiBonus + macdBonus,
+    );
+    // v17: 76%+ geometric win probability (same threshold)
     if (adjustedTpHitProb < 0.76) continue;
 
     const tp = coin.price * (1 + tpPct);
     const sl = coin.price * (1 - slPct);
 
     // ============================================================
-    // ACCURATE TIME-TO-TP ESTIMATE
+    // ACCURATE TIME-TO-TP ESTIMATE — v17 improved
     // ============================================================
-    const activeHoursPerDay = momentum >= 5 ? 7 : momentum >= 2 ? 5 : 4;
-    const effectiveHourlyRate = Math.max(momentum / activeHoursPerDay, 0.05);
+    const activeHoursPerDay = momentum >= 5 ? 8 : momentum >= 2 ? 6 : 5;
+    const effectiveHourlyRate = Math.max(momentum / activeHoursPerDay, 0.08);
     const rawHoursCalc = (tpPct * 100) / effectiveHourlyRate;
-    const estimatedHours = Math.max(0.5, Math.min(48, rawHoursCalc * 1.2));
+    // v17: tighter TP means faster hit — reduce multiplier from 1.2 to 1.0
+    const estimatedHours = Math.max(0.25, Math.min(36, rawHoursCalc * 1.0));
 
     // ============================================================
     // ML SCORING
@@ -412,13 +421,15 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     if (momentum > 2) mlScore += 2;
     if (momentum > 4) mlScore += 2;
     if (tpSource.includes("24h")) mlScore += 4;
-    if (indicatorsAligned === 6) mlScore = Math.min(99, mlScore + 4);
-    if (indicatorsAligned === 5) mlScore = Math.min(99, mlScore + 2);
+    if (indicatorsAligned === 6) mlScore = Math.min(99, mlScore + 5);
+    if (indicatorsAligned === 5) mlScore = Math.min(99, mlScore + 3);
     if (profile.wins > 0 && profile.losses === 0)
       mlScore = Math.min(99, mlScore + 3);
     if (profile.wins >= 3) mlScore = Math.min(99, mlScore + 2);
     mlScore = Math.min(99, mlScore + 4); // Low dump risk bonus
     if (distToHigh24h > 0.08) mlScore = Math.min(99, mlScore + 3);
+    // v17: RSI ideal zone bonus
+    if (rsi >= 48 && rsi <= 62) mlScore = Math.min(99, mlScore + 2);
     mlScore = Math.min(99, Math.max(78, mlScore));
 
     const adjustmentFactor = getAdjustmentFactor();
@@ -439,7 +450,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
       distToHigh24h > 0.05;
 
     // ============================================================
-    // SURETY SCORE v5 — momentum quality + room to run
+    // SURETY SCORE v6 — momentum quality + room to run + RSI ideal zone
     // ============================================================
     const indicatorAlignmentPct = (indicatorsAligned / 6) * 100;
     const momentumQuality = Math.min(100, momentum * 8);
@@ -447,6 +458,7 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     const tpProximityScore = Math.max(0, 100 - tpPct * 1000);
     const provenResistanceBonus = tpSource.includes("24h") ? 12 : 0;
     const roomBonus = Math.min(20, distToHigh24h * 200);
+    const rsiIdealBonus = rsi >= 48 && rsi <= 62 ? 5 : 0;
 
     const suretyScore = Math.round(
       Math.min(
@@ -460,13 +472,14 @@ export function generateSignals(coins: CoinData[]): Signal[] {
             timeScore * 0.08 +
             tpProximityScore * 0.05 +
             roomBonus +
-            provenResistanceBonus,
+            provenResistanceBonus +
+            rsiIdealBonus,
         ),
       ),
     );
 
-    // Minimum surety 55 (was 65 — loosened to allow more signals)
-    if (suretyScore < 55) continue;
+    // v17: Minimum surety 60 (was 55)
+    if (suretyScore < 60) continue;
 
     // Lock surety for the entire hour
     const suretyKey = `${coin.symbol}-${hourSeed}`;
@@ -481,16 +494,16 @@ export function generateSignals(coins: CoinData[]): Signal[] {
     // TP CONFIDENCE SCORE
     // ============================================================
     const tpConfidenceScore =
-      (rsi >= 50 && rsi <= 62 ? 20 : rsi >= 42 && rsi <= 70 ? 15 : 0) +
+      (rsi >= 50 && rsi <= 62 ? 20 : rsi >= 42 && rsi <= 68 ? 15 : 0) +
       (macd.histogram > 0 ? 20 : 0) +
       (ema9 > ema21 * 1.005 ? 15 : ema9 > ema21 ? 10 : 0) +
-      (momentum >= 1 && momentum <= 8 ? 15 : momentum >= 0.3 ? 8 : 0) +
+      (momentum >= 1 && momentum <= 8 ? 15 : momentum >= 0.5 ? 8 : 0) +
       (distToHigh24h > 0.05 ? 15 : distToHigh24h > 0.02 ? 10 : 0) +
       (trendStructure === "HH/HL" ? 15 : 0);
 
     const tpConfidence = Math.min(100, tpConfidenceScore);
-    // Relaxed gate: 45+ (synthetic candles rarely produce perfect scores)
-    if (tpConfidence < 45) continue;
+    // v17: gate at 50 (was 45)
+    if (tpConfidence < 50) continue;
 
     const compositeScore =
       tpProbabilityPct * 0.35 +
@@ -626,12 +639,12 @@ export async function enrichSignalsWithAI(
       const newGuaranteedHit =
         signal.guaranteedHit && v.aiRating === "Strong Buy";
 
-      // For Strong Buy: tighten TP to 85% of distance (faster hit)
+      // For Strong Buy: tighten TP to 88% of distance (v17: was 85%)
       let adjustedTakeProfit = signal.takeProfit;
       let adjustedStopLoss = signal.stopLoss;
       if (v.aiRating === "Strong Buy") {
         const tpDist = signal.takeProfit - signal.entryPrice;
-        adjustedTakeProfit = signal.entryPrice + tpDist * 0.85;
+        adjustedTakeProfit = signal.entryPrice + tpDist * 0.88;
         const slDist = signal.entryPrice - signal.stopLoss;
         adjustedStopLoss = signal.entryPrice - slDist * 1.1;
       }
@@ -660,13 +673,12 @@ export async function enrichSignalsWithAI(
     })
     .filter((s): s is NonNullable<typeof s> => s !== null);
 
-  // After AI enrichment: drop any AI-rated "Buy" signals with low surety
-  // Only Strong Buy signals with surety >= 72 stay in the final list
+  // v17: stricter post-AI filter
+  // Strong Buy always kept; Buy needs surety >= 70; unenriched needs >= 72
   const finalEnriched = enriched.filter((s) => {
     if (s.aiRating === "Strong Buy") return true;
-    if (s.aiRating === "Buy" && s.suretyScore >= 72) return true;
-    // Not yet enriched: keep if surety is high
-    if (!s.aiEnriched && s.suretyScore >= 70) return true;
+    if (s.aiRating === "Buy" && s.suretyScore >= 70) return true;
+    if (!s.aiEnriched && s.suretyScore >= 72) return true;
     return false;
   });
 

@@ -1,43 +1,47 @@
 # Luxia Crypto Trade
 
 ## Current State
-- Snackbar has separate tabs: HOME, FAST TRADE, TRADE NOW, ACTIVE SIGNALS, HIGH PROFIT, SUPER HIGH, ELITE, SEARCH, TRACKING, FOUNDER, AI SKILLS, GUIDE
-- Sidebar has "Verified Signals" as a sidebar-only link
-- Page type enum includes: fast, tradeNow, active, highProfit, superHighProfit, elite, verifiedSignals
-- AuthContext.addUser() saves to localStorage and calls saveUsersToBackend() immediately
-- AI learning data syncs to backend on every save
-- Auto-sync on app load: loads users from backend once on mount, but no periodic/real-time push
-- Admin panel can delete users, but deleteUser() only updates localStorage (missing backend sync)
+- Full crypto trading signal platform with Premium Signals (6 sub-tabs), Elite Signals, Tracking, AI Dashboard, etc.
+- Signal engine generates signals from CoinGecko data with RSI/MACD/EMA/ATR/volume indicators
+- Sort options: Highest Profit, Surety, TP Hitting
+- Signals often not hitting TP — filters may be too loose, or TP targets are set too aggressively
+- No AI Chat section in the sidebar
+- Sidebar has: Profile, Home, Post, News, Tracking, AI Dashboard, Founder, AI Skills, Instructions
 
 ## Requested Changes (Diff)
 
 ### Add
-- New page type `premiumSignals` for the combined section
-- New `PremiumSignalsPage` that combines Fast Trade, Trade Now, Active Signals, High Profit, Super High Profit, Elite — each shown as a named sub-tab inside the page with its own filter criteria and signal cards
-- New snackbar tab "ELITE SIGNALS" (replaces/moves Verified Signals from sidebar to snackbar)
-- Auto-sync interval: every 30 seconds, push the full user list + AI learning data to the canister in the background
-- On any user CRUD (add/delete/credit update), immediately sync to backend
-- deleteUser in AdminPage must also sync to backend
+1. **AI Bots Chat Page** — New sidebar tab "AI Chat" with two AI bots (Alpha Bot and Beta Bot) that:
+   - Continuously chat with each other researching how to improve signal accuracy and profitability
+   - Analyze current market conditions, signal patterns, and TP hit rates
+   - Suggest improvements to the signal engine in real-time
+   - Use Groq API (Llama 3.3-70b) for both bots with distinct personalities
+   - Chat updates every 30 seconds without user intervention — bots never stop
+   - User can join the conversation and ask questions to either bot
+   - User can add a third "Researcher Bot" to the conversation for deeper analysis
+   - Messages displayed as a live chat feed with bot avatars and distinct colors
+   - Each bot message shows insights about signal quality and TP hitting improvements
+   - Bots provide actionable upgrades and self-improve each other's knowledge
+
+2. **"AI Chat" sidebar tab** — Added to SIDEBAR_TABS in App.tsx with a Bot/MessageSquare icon, routes to new AIChatPage
+
+3. **Signal engine tighter TP targeting** — Only show signals that are highly likely to hit TP:
+   - Require momentum 1%–10% (was 0.3–12%) — stronger signals only
+   - Require distToHigh24h >= 3% (was 2%) — more room to run
+   - Require indicatorsAligned >= 5 (was 4) — only 5-6 aligned signals
+   - Increase tpConfidence gate to 55 (was 45)
+   - Tighter TP: use 0.85x multiplier on calculated TP so target is more achievable
+   - Only show if coin is actively rising (momentum positive and recent)
 
 ### Modify
-- Snackbar TOP_TABS: remove FAST TRADE, TRADE NOW, ACTIVE SIGNALS, HIGH PROFIT, SUPER HIGH, ELITE; add PREMIUM SIGNALS (single tab) and ELITE SIGNALS (renamed Verified Signals in snackbar)
-- App Page type: add `premiumSignals` and `eliteSignals`, keep old types for backward compat but they will no longer be in the snackbar
-- renderPage() in App.tsx: add cases for premiumSignals (PremiumSignalsPage) and eliteSignals (VerifiedSignalsPage renamed to EliteSignalsPage)
-- AuthContext: add periodic auto-sync (setInterval every 30s) that pushes users + AI learning to backend silently
-- AdminPage deleteUser: call saveUsersToBackend() after deleting from localStorage
+- App.tsx: Add "aiChat" to Page type, add SIDEBAR_TABS entry for AI Chat, add case in renderPage()
+- signalEngine.ts: Tighten filters for higher TP accuracy (momentum gate, indicator requirements)
 
 ### Remove
-- "Verified Signals" from the sidebar tabs list (it moves to snackbar as "ELITE SIGNALS")
-- Separate snackbar tabs for Fast Trade, Trade Now, Active Signals, High Profit, Super High Profit, Elite (all merged into Premium Signals)
+- Nothing removed
 
 ## Implementation Plan
-1. Create `PremiumSignalsPage.tsx` — tabbed page with 6 sub-sections (Fast Trade, Trade Now, Active Signals, High Profit, Super High Profit, Elite), each rendering SignalPage or ElitePage with correct type and applying their section filters. Use horizontal pill tab navigation.
-2. Create `EliteSignalsPage.tsx` — rename/copy VerifiedSignalsPage with updated title "Elite Signals" branding.
-3. Update `App.tsx`:
-   - Add `premiumSignals` and `eliteSignals` to Page type
-   - Replace 6 separate snackbar tabs with `premiumSignals` tab (gold crown icon)
-   - Add `eliteSignals` tab to snackbar (shield/check icon)
-   - Remove `verifiedSignals` from SIDEBAR_TABS
-   - Add renderPage cases for both new pages
-4. Update `AdminPage.tsx` deleteUser to call saveUsersToBackend() after localStorage update.
-5. Update `AuthContext.tsx`: add a useEffect with setInterval(30000) that calls saveUsersToBackend() with current users list silently in the background — full auto-sync loop.
+1. Create `src/frontend/src/pages/AIChatPage.tsx` — full AI bots chat interface
+2. Create `src/frontend/src/services/aiBotChat.ts` — Groq API calls for bot conversations
+3. Update `src/frontend/src/App.tsx` — add Page type, sidebar tab, route
+4. Update `src/frontend/src/services/signalEngine.ts` — tighter signal filters for TP accuracy

@@ -1,6 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import {
   BookOpen,
+  Bot,
   CheckCircle,
   Cpu,
   Crown,
@@ -29,6 +30,7 @@ import {
   useCredits,
 } from "./context/CreditContext";
 import { ScanProvider, useScan } from "./context/ScanContext";
+import AIChatPage from "./pages/AIChatPage";
 import AISkillsPage from "./pages/AISkillsPage";
 import ActiveSignalsPage from "./pages/ActiveSignalsPage";
 import AdminPage from "./pages/AdminPage";
@@ -72,7 +74,8 @@ export type Page =
   | "admin"
   | "aiSkills"
   | "instructions"
-  | "verifiedSignals";
+  | "verifiedSignals"
+  | "aiChat";
 
 const TOP_TABS = [
   { id: "home" as Page, label: "HOME", Icon: Home, gold: false },
@@ -100,6 +103,7 @@ const SIDEBAR_TABS = [
   { id: "news" as Page, label: "News", Icon: TrendingUp },
   { id: "tracking" as Page, label: "Tracking", Icon: TrendingUp },
   { id: "dashboard" as Page, label: "AI Dashboard", Icon: Settings },
+  { id: "aiChat" as Page, label: "AI Trading Bots", Icon: Bot },
   { id: "founder" as Page, label: "Founder", Icon: UserCircle },
   { id: "aiSkills" as Page, label: "AI Skills", Icon: Cpu },
   { id: "instructions" as Page, label: "Instructions", Icon: FileText },
@@ -174,6 +178,8 @@ function AppInner() {
         return <PremiumSignalsPage />;
       case "eliteSignals":
         return <EliteSignalsPage />;
+      case "aiChat":
+        return <AIChatPage />;
       // Legacy routes kept for backward compat
       case "fast":
         return <FastTradePage />;
@@ -421,6 +427,7 @@ function AppInner() {
               <nav className="flex-1 px-3 flex flex-col gap-1 overflow-y-auto">
                 {SIDEBAR_TABS.map(({ id, label, Icon }) => {
                   const active = page === id;
+                  const isAIChat = id === "aiChat";
                   return (
                     <button
                       type="button"
@@ -429,12 +436,21 @@ function AppInner() {
                       onClick={() => navigate(id)}
                       className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
                         active
-                          ? "bg-[#0A1628] text-white"
-                          : "text-[#0A1628]/70 hover:bg-[#0A1628]/5 hover:text-[#0A1628]"
+                          ? isAIChat
+                            ? "bg-gradient-to-r from-blue-600 to-blue-400 text-white"
+                            : "bg-[#0A1628] text-white"
+                          : isAIChat
+                            ? "text-blue-600 hover:bg-blue-50 border border-blue-200/60"
+                            : "text-[#0A1628]/70 hover:bg-[#0A1628]/5 hover:text-[#0A1628]"
                       }`}
                     >
                       <Icon size={16} />
-                      {label}
+                      <span className="flex-1">{label}</span>
+                      {isAIChat && (
+                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-600">
+                          LIVE
+                        </span>
+                      )}
                     </button>
                   );
                 })}
